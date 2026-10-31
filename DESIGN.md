@@ -561,7 +561,7 @@ This way the concept is visible right in the test, and no separate golden files 
 | P1 | two `Exec`s with a memory change between them → new values, `Gen` grows |
 | P2 | **zero-alloc**: `AllocsPerRun(100, plan.Exec) == 0` for a static Plan. This is a regular test, not just a benchmark, so a regression fails CI |
 | P3 | an unchanged string does not allocate; a changed one does |
-| P4 | `LoadEach` with a stable count — 0 allocations after warm-up; growth allocates only for the growth |
+| P4 | `LoadEach` with a stable count: `Bind` is not called again, and only the result slices are allocated (the pointer list and `[]T`), i.e. ≤ 2 per `Exec` |
 | P5 | **`View` consistency**: the fake keeps fields A and B always equal within one `Exec`; a reader in `View` checks `A == B` in a loop (`-race`) |
 | P6 | a request after freeze → panic; `Write` in a Plan → panic |
 | P7 | parallel `Exec`s are serialized, without races |
@@ -885,8 +885,20 @@ On every `Exec`:
   `i+1`, and is then reused together with its staging copy of `T`.
 - **Strings**: the decoder compares the new bytes with the previous value in this slot. If the bytes
   match, it reuses the same `string` and does not allocate. So HP changes every frame, but the name does not.
-- Remaining allocations: `Then` with new futures; growth of the `LoadEach` element count; changed strings.
-  All of this is documented.
+- Remaining allocations: `Then` with new futures; growth of the `LoadEach` element count; changed strings;
+  **every slice result** (`ReadSlice`, `LoadEach`, `All`) is a new slice on each `Exec`.
+  Double buffering of slices is rejected: a slice returned by `Get` would change "under your hands"
+  two `Exec`s later. Safety matters more than one allocation.
+
+**How it is implemented (stage 5)**:
+- `Plan` has its own `engine.Run` (not from the pool, because `sync.Pool` may hand out a new object after a GC).
+- Futures write their result into staging (`sv`/`serr`), and `Plan.finish` under the `publishLock` write lock
+  commits all futures together and increments `Gen`. `View` takes the read lock, and so does `Get` inside `View`,
+  which is why the lock is reader-preferring (A.0).
+- `Future.Gen()` and `Future.Next(ctx, after)` subscribe to new Plan values without polling:
+  the update channel is taken **before** the generation check, so a publish cannot be missed.
+- Strings: `stringMemo` compares the raw bytes with the previous `Exec`; unchanged gives the same `string`.
+- `Run(ctx, plan, batch)` publishes the Plan like `Exec` does; the same scope twice panics.
 
 `Plan.Exec` is not reentrant: a parallel call waits on an internal mutex.
 A Plan attached to a `Scheduler` cannot be run by hand (panic).
