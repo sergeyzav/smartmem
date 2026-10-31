@@ -271,6 +271,20 @@ hp, err := smartmem.Read[int32](sch, loc).Wait(ctx)
 - This is how the use case "subsystem A reads X, subsystem B follows the chain Y→Z" runs:
   X and Y in round 1, Z in round 2, and 2 scatters in all.
 
+**How it is implemented (stage 6)**:
+- The Scheduler's graph takes requests from any goroutine through `submit` (a queue under `mu`). During a flush
+  the engine works with a separate internal graph that other goroutines do not touch, so describing requests
+  does not block while an execution runs.
+- Continuations get the scope they run in: `Then` on a Scheduler future describes dependent requests
+  in the **current** flush (S6). A request described in `Then` through the `Scheduler` itself goes into the next flush.
+- `Future.subs` and `staged` are guarded by `Future.mu`, so `Map`/`Then` from one goroutine do not overlap with
+  resolving in the engine. Batch and Scheduler futures are not registered in the graph (only Plan futures, because they
+  are committed together).
+- `Close` cancels the current flush through `context.WithCancelCause(ErrClosed)` (the engine uses `context.Cause`),
+  fails the queue and new requests with `ErrClosed`, and detaches Plans. `Exec` on an attached Plan panics,
+  `Run` with it returns an error.
+- A Plan that fell behind skips the missed ticks instead of catching up with a series of flushes.
+
 ## 8. Engine
 
 An execution is a loop of rounds while there are pending nodes:
