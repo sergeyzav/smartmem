@@ -8,16 +8,18 @@ import (
 	"github.com/sergeyzav/smartmem/internal/engine"
 )
 
-// Read describes a read of a T at loc. T must be blittable: fixed-size
-// numbers, arrays and structs of them, Ptr, Addr or CBool. An unsupported T
-// panics with a *TypeError.
+// Read describes a read of a T at loc. T is either blittable (fixed-size
+// numbers, arrays and structs of them, Ptr, Addr, CBool), read as one range,
+// or a sparse struct with `mem:"<offset>"` tags, whose fields are read on
+// their own and published together. An unsupported T panics with a *TypeError.
 func Read[T any](s Scope, loc Loc) *Future[T] {
 	g := s.scope()
 	c := codec.MustOf[T]()
-	if c.Kind != codec.Blittable {
-		panic("smartmem: Read: " + c.Type.String() + " is a sparse struct; read it with Load")
-	}
 	f := newFuture[T](g)
+	if c.Kind == codec.Sparse {
+		readSparse(g, f, c, loc)
+		return f
+	}
 	leaf := &engine.Node{Kind: engine.Leaf, Size: uint32(c.Size), Sink: &valueSink[T]{f: f, c: c}}
 	g.add(g.newChain(loc, leaf))
 	return f

@@ -11,6 +11,7 @@ type baseKind uint8
 const (
 	baseAddr baseKind = iota + 1
 	baseModule
+	baseCell // the base is read from a cell at run time (LoadEach elements)
 )
 
 // Loc describes how to get to an address: a base, then a sequence of Add and
@@ -26,6 +27,7 @@ type Loc struct {
 	kind   baseKind
 	addr   uint64
 	module string
+	cell   *uint64
 	// offs[0] is added to the base; offs[i] is added after the i-th Deref.
 	// len(offs)-1 is the number of Derefs. Consecutive Adds fold together.
 	offs []int64
@@ -98,9 +100,12 @@ func (l Loc) String() string {
 	}
 	var b strings.Builder
 	b.WriteString(strings.Repeat("[", len(l.offs)-1))
-	if l.kind == baseModule {
+	switch l.kind {
+	case baseModule:
 		b.WriteString(l.module)
-	} else {
+	case baseCell:
+		b.WriteString("<element>")
+	default:
 		fmt.Fprintf(&b, "0x%x", l.addr)
 	}
 	for i, off := range l.offs {
