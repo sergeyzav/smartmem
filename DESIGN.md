@@ -325,20 +325,26 @@ func (p *Player) Bind(l *smartmem.Loader, base smartmem.Loc) {
 }
 
 func Load[T any, PT interface{ *T; Binder }](s Scope, base Loc, opts ...LoadOption) *Future[T]
-func LoadEach[T any, PT interface{ *T; Binder }](s Scope, ptrs *Future[[]Ptr[T]], opts ...LoadOption) *Future[[]T]
+func LoadEach[T any, PT interface{ *T; Binder }](s Scope, p *Process, ptrs *Future[[]Ptr[T]], opts ...LoadOption) *Future[[]T]
 func Field[T any](l *Loader, dst *T, loc Loc, opts ...FieldOption)
+func FieldString(l *Loader, dst *string, loc Loc, kind StringKind, opts ...FieldOption)
 func Sub[T any, PT interface{ *T; Binder }](l *Loader, dst *T, base Loc) // nested Binder
 
 p1 := smartmem.Load[Player](b, entity)          // PT is inferred
 ```
 
-- `Bind` is called **once** at registration. It describes the shape, not the data, and
-  cannot depend on values read. Conditional fields use `Then` inside
-  `Bind`: `Loader` is also a `Scope`.
+- `Bind` is called **once** at registration (for `LoadEach`, once per element slot).
+  It describes the shape, not the data, and cannot depend on values read. In v1 `Loader` **is not**
+  a `Scope`: all fields are static. Reads that depend on data go through `Then` outside `Bind`.
+- `LoadEach` takes a `*Process`, because `[]Ptr[T]` does not know which process it belongs to.
+  An element's base is a `Loc` with a cell base, which the engine fills with the pointer before starting the slot.
+- `Read[T]` for a sparse struct (`mem` tags) uses the same mechanism: each field is
+  a separate chain from `loc + offset`, and the publish is atomic.
 - `Loader` writes into a **staging copy** of `T`. The future resolves only when every field
   is done. Then the staging copy is copied into the published value. Nobody sees a half filled
   struct.
-- Field errors are combined with `errors.Join` with the field context (`FieldError{Loc, Err}`).
+- The first error of a non-`Optional` field fails the struct with `FieldError{Loc, Err}`, and the rest of its nodes
+  are skipped (fail-fast), so there is one error, no `errors.Join`.
   `Optional()` on a field means its error does not fail the struct, and the field stays zero.
 - `LoadEach`: by default nil pointers and failed elements
   are skipped. `Strict()` fails the whole result.
