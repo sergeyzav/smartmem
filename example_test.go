@@ -50,3 +50,41 @@ func ExampleProcess_Chain() {
 	fmt.Println(loc, pos, err)
 	// Output: [[game.dll+0x100]+0x30]+0x90 {1 2 3} <nil>
 }
+
+// Monster is a business struct assembled from several places in memory.
+type Monster struct {
+	HP   int32
+	Name string
+	Pos  struct{ X, Y, Z float32 }
+}
+
+// Bind says where each field lives. It runs once, when the struct is
+// registered.
+func (m *Monster) Bind(l *smartmem.Loader, base smartmem.Loc) {
+	smartmem.Field(l, &m.HP, base.Add(0x10))
+	smartmem.FieldString(l, &m.Name, base.Add(0x18).Deref(), smartmem.CString(16))
+	smartmem.Field(l, &m.Pos, base.Add(0x20).Deref().Add(0x40))
+}
+
+// Load reads a struct whose fields are spread over memory. The engine reads
+// them in as few rounds as the pointers allow, and the Future gets the struct
+// only when every field is in.
+func ExampleLoad() {
+	mem := fake.New()
+	mem.Proc(4242).
+		I32(0x10010, 250).
+		U64(0x10018, 0x20000).Bytes(0x20000, []byte("Grue\x00")).
+		U64(0x10020, 0x30000).Bytes(0x30040, []byte{0, 0, 0x80, 0x3f, 0, 0, 0, 0x40, 0, 0, 0x40, 0x40})
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	b := s.NewBatch()
+	monster := smartmem.Load[Monster](b, p.At(0x10000))
+	if err := b.Run(context.Background()); err != nil {
+		panic(err)
+	}
+	m, err := monster.Get()
+	fmt.Printf("%+v %v\n", m, err)
+	// Output: {HP:250 Name:Grue Pos:{X:1 Y:2 Z:3}} <nil>
+}
