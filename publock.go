@@ -12,6 +12,12 @@ type publishLock struct {
 	writer  bool
 }
 
+func newPublishLock() *publishLock {
+	l := &publishLock{}
+	l.cond.L = &l.mu
+	return l
+}
+
 func (l *publishLock) RLock() {
 	l.mu.Lock()
 	for l.writer {
