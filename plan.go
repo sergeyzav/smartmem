@@ -2,6 +2,7 @@ package smartmem
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/sergeyzav/smartmem/internal/engine"
@@ -27,6 +28,8 @@ type Plan struct {
 
 	self  [1]*graph
 	selfR [1]Runnable
+
+	attached bool // run by a Scheduler; guarded by execMu
 }
 
 // NewPlan returns an empty Plan.
@@ -43,6 +46,12 @@ func (p *Plan) scope() *graph { return &p.g }
 // the Plan: describing more requests afterwards panics. Concurrent Execs run
 // one after another.
 func (p *Plan) Exec(ctx context.Context) error {
+	p.execMu.Lock()
+	attached := p.attached
+	p.execMu.Unlock()
+	if attached {
+		panic("smartmem: Plan.Exec on a Plan attached to a Scheduler")
+	}
 	if err := p.check(); err != nil {
 		return err
 	}
@@ -71,7 +80,16 @@ func (p *Plan) Gen() uint64 {
 	return p.gen
 }
 
-func (p *Plan) check() error { return nil }
+func (p *Plan) check() error {
+	p.execMu.Lock()
+	defer p.execMu.Unlock()
+	if p.attached {
+		return errAttached
+	}
+	return nil
+}
+
+var errAttached = errors.New("smartmem: the Plan is attached to a Scheduler")
 
 func (p *Plan) prepare() *graph {
 	p.execMu.Lock()

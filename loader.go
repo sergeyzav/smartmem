@@ -199,7 +199,7 @@ type eachSlot[T any] struct {
 	err     error
 }
 
-func (e *eachState[T]) start(ptrs []Ptr[T], err error) {
+func (e *eachState[T]) start(ptrs []Ptr[T], err error, _ Scope) {
 	if err != nil {
 		e.out.resolve(nil, err)
 		return
@@ -229,7 +229,7 @@ func (e *eachState[T]) start(ptrs []Ptr[T], err error) {
 		return
 	}
 	for _, slot := range e.active {
-		slot.st.schedule(e.g.run)
+		slot.st.schedule(e.g.engine().run)
 	}
 }
 
@@ -332,6 +332,12 @@ func (st *loadState) finish() {
 	}
 }
 
+func (st *loadState) fail(err error) {
+	if !st.done {
+		st.complete(err)
+	}
+}
+
 func (st *loadState) schedule(r *engine.Run) {
 	st.retries = 0
 	st.start(r)
@@ -380,7 +386,7 @@ func (st *loadState) maybeComplete() {
 	if st.unstable {
 		if st.retries < st.opts.revalidate {
 			st.retries++
-			st.start(st.g.run)
+			st.start(st.g.engine().run)
 			return
 		}
 		st.complete(ErrUnstable)
@@ -411,7 +417,7 @@ func (st *loadState) Deref(n *engine.Node, slot, value uint64) {
 	c.want = value
 	c.node.PID, c.node.Flags = n.PID, n.Flags
 	st.pending++
-	st.g.run.AddAt(&c.node, slot, st.r0+st.depth)
+	st.g.engine().run.AddAt(&c.node, slot, st.r0+st.depth)
 }
 
 // checkNode re-reads one pointer for Revalidate.

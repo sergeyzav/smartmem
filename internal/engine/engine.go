@@ -150,7 +150,8 @@ func (r *Run) Execute(ctx context.Context) error {
 			r.failNodes(nil, ErrMaxRounds)
 			return nil
 		}
-		if err := ctx.Err(); err != nil {
+		if ctx.Err() != nil {
+			err := context.Cause(ctx)
 			r.failNodes(nil, err)
 			return err
 		}

@@ -21,7 +21,7 @@ type Future[T any] struct {
 	sv     T
 	serr   error
 	staged bool
-	subs   []func(T, error)
+	subs   []func(T, error, Scope)
 
 	mu     sync.Mutex
 	done   chan struct{}
@@ -138,7 +138,9 @@ func (f *Future[T]) resolve(v T, err error) {
 }
 
 func (f *Future[T]) resolveStaged(err error) {
+	f.mu.Lock()
 	if f.staged {
+		f.mu.Unlock()
 		return
 	}
 	if err != nil {
@@ -146,17 +148,23 @@ func (f *Future[T]) resolveStaged(err error) {
 		f.sv = zero
 	}
 	f.serr, f.staged = err, true
+	subs := f.subs
+	f.mu.Unlock()
 	if f.g.pub == nil {
 		f.commit()
 	}
-	for _, fn := range f.subs {
-		fn(f.sv, f.serr)
+	sc := f.g.engine()
+	for _, fn := range subs {
+		fn(f.sv, f.serr, sc)
 	}
 }
 
 // commit publishes the staged result. In a Plan the caller holds the publish lock.
 func (f *Future[T]) commit() {
-	if !f.staged {
+	f.mu.Lock()
+	staged := f.staged
+	f.mu.Unlock()
+	if !staged {
 		return
 	}
 	f.val, f.err = f.sv, f.serr
@@ -178,11 +186,15 @@ func (f *Future[T]) reset() {
 }
 
 // subscribe runs fn with the result: now if it is staged, else when it is.
-func (f *Future[T]) subscribe(fn func(T, error)) {
+// fn gets the scope new requests should go to.
+func (f *Future[T]) subscribe(fn func(T, error, Scope)) {
+	f.mu.Lock()
 	if f.staged {
-		fn(f.sv, f.serr)
+		f.mu.Unlock()
+		fn(f.sv, f.serr, f.g)
 		return
 	}
+	defer f.mu.Unlock()
 	f.g.mustDescribe("a continuation")
 	f.subs = append(f.subs, fn)
 }
@@ -192,7 +204,7 @@ func (f *Future[T]) subscribe(fn func(T, error)) {
 // rounds, so it must be fast and must not block.
 func Map[T, U any](f *Future[T], fn func(T) (U, error)) *Future[U] {
 	out := newFuture[U](f.g)
-	f.subscribe(func(v T, err error) {
+	f.subscribe(func(v T, err error, _ Scope) {
 		if err != nil {
 			var zero U
 			out.resolve(zero, err)
@@ -210,18 +222,18 @@ func Map[T, U any](f *Future[T], fn func(T) (U, error)) *Future[U] {
 // block.
 func Then[T, U any](f *Future[T], fn func(s Scope, v T) *Future[U]) *Future[U] {
 	out := newFuture[U](f.g)
-	f.subscribe(func(v T, err error) {
+	f.subscribe(func(v T, err error, s Scope) {
 		var zero U
 		if err != nil {
 			out.resolve(zero, err)
 			return
 		}
-		inner := fn(f.g, v)
+		inner := fn(s, v)
 		if inner == nil {
 			out.resolve(zero, nil)
 			return
 		}
-		inner.subscribe(out.resolve)
+		inner.subscribe(func(u U, err error, _ Scope) { out.resolve(u, err) })
 	})
 	return out
 }
@@ -239,7 +251,7 @@ func All[T any](fs ...*Future[T]) *Future[[]T] {
 		if f.g != g {
 			panic("smartmem: All: Futures come from different scopes")
 		}
-		f.subscribe(func(v T, err error) { a.done(i, v, err) })
+		f.subscribe(func(v T, err error, _ Scope) { a.done(i, v, err) })
 	}
 	return a.out
 }
