@@ -118,3 +118,36 @@ func ExamplePlan() {
 	// 2 90 50
 	// 3 80 50
 }
+
+// A Scheduler merges requests from independent goroutines into shared rounds:
+// here one subsystem reads a counter while another follows a pointer, and
+// both are served by the same two scatter operations.
+func ExampleScheduler() {
+	mem := fake.New()
+	mem.Proc(4242).U32(0x1000, 7).U64(0x2000, 0x5000).U32(0x5010, 42)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+	sch := smartmem.NewScheduler(s)
+	defer sch.Close()
+
+	ctx := context.Background()
+	results := make(chan string, 2)
+	go func() { // subsystem A
+		v, _ := smartmem.Read[uint32](sch, p.At(0x1000)).Wait(ctx)
+		results <- fmt.Sprint("counter ", v)
+	}()
+	go func() { // subsystem B
+		v, _ := smartmem.Read[uint32](sch, p.Chain(p.At(0x2000), 0x10)).Wait(ctx)
+		results <- fmt.Sprint("chained ", v)
+	}()
+	a, b := <-results, <-results
+	if a > b {
+		a, b = b, a
+	}
+	fmt.Println(a)
+	fmt.Println(b)
+	// Output:
+	// chained 42
+	// counter 7
+}

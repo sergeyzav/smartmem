@@ -22,6 +22,11 @@ type graph struct {
 	kind   string
 	plan   *Plan
 	gen    uint64 // the execution being committed (Plan: set under pub)
+
+	// A Scheduler's graph takes requests from any goroutine through submit,
+	// and runs continuations in eng, a graph only its engine goroutine uses.
+	submit func(request)
+	eng    *graph
 }
 
 func (g *graph) scope() *graph { return g }
@@ -29,6 +34,7 @@ func (g *graph) scope() *graph { return g }
 // request is something that puts nodes into a Run.
 type request interface {
 	schedule(r *engine.Run)
+	fail(err error)
 }
 
 type resetter interface{ reset() }
@@ -40,12 +46,22 @@ type committer interface {
 
 // add registers a request, or schedules it at once during an execution.
 func (g *graph) add(req request) {
-	if g.run != nil {
+	switch {
+	case g.run != nil:
 		req.schedule(g.run)
-		return
+	case g.submit != nil:
+		g.submit(req)
+	default:
+		g.mustDescribe("a request")
+		g.reqs = append(g.reqs, req)
 	}
-	g.mustDescribe("a request")
-	g.reqs = append(g.reqs, req)
+}
+
+func (g *graph) engine() *graph {
+	if g.eng != nil {
+		return g.eng
+	}
+	return g
 }
 
 func (g *graph) mustDescribe(what string) {
@@ -57,15 +73,17 @@ func (g *graph) mustDescribe(what string) {
 // track registers a Future for the Plan's reset and commit steps. Futures
 // made during an execution are internal to it and are not tracked.
 func (g *graph) track(c committer) {
-	if g.run != nil {
+	if g.run != nil || g.submit != nil {
 		return
 	}
 	g.mustDescribe("a Future")
-	g.commit = append(g.commit, c)
+	if g.plan != nil {
+		g.commit = append(g.commit, c)
+	}
 }
 
 func (g *graph) trackResetter(r resetter) {
-	if g.run == nil {
+	if g.run == nil && g.plan != nil {
 		g.resets = append(g.resets, r)
 	}
 }
@@ -112,6 +130,8 @@ func (g *graph) newChain(loc Loc, tail *engine.Node) *chainReq {
 	}
 	return &chainReq{loc: loc, head: next}
 }
+
+func (c *chainReq) fail(err error) { engine.Fail(c.head, err) }
 
 func (c *chainReq) schedule(r *engine.Run) {
 	base, err := c.loc.base()

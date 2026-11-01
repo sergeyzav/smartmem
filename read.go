@@ -77,6 +77,7 @@ func (s *sliceSink[T]) Done(b []byte, err error) {
 type resolved func()
 
 func (fn resolved) schedule(*engine.Run) { fn() }
+func (fn resolved) fail(error)           { fn() }
 
 // StringKind says how a string is stored in memory.
 type StringKind struct {
@@ -199,7 +200,7 @@ func (s *unicodeSink) Done(b []byte, err error) {
 	}
 	s.buf.Size = uint32(n)
 	s.buf.PID, s.buf.Flags = s.header.PID, s.header.Flags
-	s.g.run.Add(&s.buf, addr)
+	s.g.engine().run.Add(&s.buf, addr)
 }
 
 type unicodeBufSink unicodeSink
