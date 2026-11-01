@@ -218,7 +218,7 @@ func WriteNow[T any](ctx context.Context, loc Loc, v T) error
 ```go
 b := s.NewBatch()
 count  := smartmem.Read[int32](b, base.Deref().Add(0x100))
-origin := smartmem.Read[Vec3](b, p.Chain(base, 0x30, 0x90))
+origin := smartmem.Read[SomeStruct](b, p.Chain(base, 0x30, 0x90))
 if err := b.Run(ctx); err != nil { /* fatal error */ }
 v, err := count.Get() // the error of this request
 ```
@@ -333,7 +333,7 @@ type Binder interface{ Bind(l *Loader, base Loc) }
 type Record struct {
     ID     int32
     Class  uint8
-    Origin Vec3
+    Origin SomeStruct
     Name   string
 }
 
@@ -513,7 +513,7 @@ This way the concept is visible right in the test, and no separate golden files 
 | ID | What it checks |
 |---|---|
 | C1 | the type table: allowed types are accepted; `bool`, `string`, slice, Go pointer, `uintptr`, map, interface → panic with the type name and the path to the field |
-| C2 | the layout matches C: `struct{int8; int64}` = 16 bytes, offset 8; `Vec3` = 12; nested arrays; hand-written C offsets |
+| C2 | the layout matches C: `struct{int8; int64}` = 16 bytes, offset 8; `SomeStruct` (three float32) = 12; nested arrays; hand-written C offsets |
 | C3 | encode→decode roundtrip for all primitives and `[N]T` (fuzz) |
 | C4 | strings: `CString` with a terminator, without one (`ErrNoTerminator` or `Truncate`), exactly `max`; `UTF16` with surrogate pairs and an odd length; `UnicodeString` with `Length > MaxStringLen`, an odd `Length`, `Buffer == 0` |
 | C5 | `CSize()` does not match `unsafe.Sizeof` → panic |

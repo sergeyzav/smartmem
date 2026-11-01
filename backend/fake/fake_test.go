@@ -227,9 +227,9 @@ func TestProcessInfo(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	type vec struct{ X, Y, Z float32 }
+	type someStruct struct{ X, Y, Z float32 }
 	m := fake.New()
-	p := fake.Put(m.Proc(1), 0x1000, vec{1, 2, 3})
+	p := fake.Put(m.Proc(1), 0x1000, someStruct{1, 2, 3})
 	got, err := p.Read(0x1000, 12)
 	if err != nil {
 		t.Fatal(err)
