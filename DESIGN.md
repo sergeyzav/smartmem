@@ -635,7 +635,8 @@ The tests rely on Windows invariants, not on specific addresses in the dump.
 
 A copy of the gomemprocfs `test.yml` approach: a matrix of the two latest MemProcFS releases, a dump
 from GCS with a cache, `VMM_DLL_PATH` / `MEMDUMP_PATH`, running `go test -count=1 ./backend/memprocfs/...`.
-Does not run for PRs from forks. At first it is an optional check.
+Does not run for PRs from forks. At first it is an optional check. If the secrets are not configured, the
+`prepare` job reports "not configured" and the tests are skipped, and the workflow is not red.
 Prerequisite: the smartmem repo needs `secrets.GCP_WORKLOAD_IDENTITY_PROVIDER`,
 `secrets.GCP_SERVICE_ACCOUNT` and `vars.GCS_MEMDUMP_PATH`, and the WIF provider must allow
 the `sergeyzav/smartmem` repository (attribute condition). Compatibility badges as in gomemprocfs, optionally.
@@ -670,6 +671,19 @@ issues:
   max-issues-per-linter: 0
   max-same-issues: 0
 ```
+
+### 14.4 How `backend/memprocfs` is implemented (stage 7)
+
+- A pool of `ScatterHandle`s without a key: a free handle is retargeted with `Clear(pid, flags)`. A handle whose
+  `Execute` failed is closed instead of returned to the pool. `ExecuteRead` when there are no writes.
+- Normalization: a `ReadInto` that returned 0 bytes without an error becomes `gomemprocfs.ErrReadFailed`.
+  A short read keeps the prefix it read (`N < len`), and the engine turns it into a `PartialReadError`.
+  So M6 expects a `ReadError` that wraps `ErrReadFailed`, and M7 records what exactly MemProcFS returns
+  at a page boundary.
+- Scatter does not return the result of a write, so `WriteOp.Err` comes only from `PrepareWrite`.
+- `go.mod`: `go 1.25.2` (the minimum that `gomemprocfs v0.3.0` requires).
+- The integration tests were not run locally (no library and no dump): the first real run will be
+  in the Integration workflow once the secrets are configured.
 
 ## 15. README
 
