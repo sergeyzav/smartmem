@@ -40,13 +40,13 @@ func ExampleProcess_Chain() {
 		U64(0x20030, 0x30000).        // object+0x30 -> geometry
 		Bytes(0x30090, []byte{0, 0, 0x80, 0x3f, 0, 0, 0, 0x40, 0, 0, 0x40, 0x40})
 
-	type Vec3 struct{ X, Y, Z float32 }
+	type SomeStruct struct{ X, Y, Z float32 }
 
 	s := smartmem.New(mem)
 	p, _ := s.Process(4242)
 	loc := p.Chain(p.Module("core.dll").Add(0x100), 0x30, 0x90)
 
-	origin, err := smartmem.ReadNow[Vec3](context.Background(), loc)
+	origin, err := smartmem.ReadNow[SomeStruct](context.Background(), loc)
 	fmt.Println(loc, origin, err)
 	// Output: [[core.dll+0x100]+0x30]+0x90 {1 2 3} <nil>
 }

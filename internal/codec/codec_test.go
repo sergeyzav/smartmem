@@ -13,7 +13,7 @@ import (
 	"github.com/sergeyzav/smartmem/internal/codec"
 )
 
-type Vec3 struct{ X, Y, Z float32 }
+type SomeStruct struct{ X, Y, Z float32 }
 
 type (
 	padded struct {
@@ -27,7 +27,7 @@ type (
 	}
 	nested struct {
 		A int8
-		V Vec3
+		V SomeStruct
 		B int64
 	}
 	byteArr struct {
@@ -55,7 +55,7 @@ func TestC1_TypeTable(t *testing.T) {
 		reflect.TypeFor[uint8](), reflect.TypeFor[uint16](), reflect.TypeFor[uint32](), reflect.TypeFor[uint64](),
 		reflect.TypeFor[float32](), reflect.TypeFor[float64](),
 		reflect.TypeFor[[4]uint16](), reflect.TypeFor[[2][3]int16](),
-		reflect.TypeFor[Vec3](), reflect.TypeFor[padded](), reflect.TypeFor[nested](), reflect.TypeFor[unicode](),
+		reflect.TypeFor[SomeStruct](), reflect.TypeFor[padded](), reflect.TypeFor[nested](), reflect.TypeFor[unicode](),
 	}
 	for _, typ := range ok {
 		c, err := codec.For(typ)
@@ -124,8 +124,8 @@ func TestC2_LayoutMatchesC(t *testing.T) {
 	}{
 		{reflect.TypeFor[padded](), 16, []uintptr{0, 8}},        // struct { int8_t a; int64_t b; }
 		{reflect.TypeFor[tail](), 8, []uintptr{0, 4, 6}},        // struct { int32_t a; int16_t b; int8_t c; }
-		{reflect.TypeFor[Vec3](), 12, []uintptr{0, 4, 8}},       // struct { float x, y, z; }
-		{reflect.TypeFor[nested](), 24, []uintptr{0, 4, 16}},    // struct { int8_t a; Vec3 v; int64_t b; }
+		{reflect.TypeFor[SomeStruct](), 12, []uintptr{0, 4, 8}}, // struct { float x, y, z; }
+		{reflect.TypeFor[nested](), 24, []uintptr{0, 4, 16}},    // struct { int8_t a; struct { float x, y, z; } v; int64_t b; }
 		{reflect.TypeFor[byteArr](), 8, []uintptr{0, 4}},        // struct { uint8_t a[3]; uint32_t b; }
 		{reflect.TypeFor[unicode](), 16, []uintptr{0, 2, 4, 8}}, // UNICODE_STRING
 		{reflect.TypeFor[[2][3]int16](), 12, nil},               // int16_t a[2][3]
@@ -159,9 +159,9 @@ func TestC3_DecodePrimitives(t *testing.T) {
 	check("uint64", decode[uint64](t, []byte{1, 2, 3, 4, 5, 6, 7, 8}), uint64(0x0807060504030201))
 	check("float32", decode[float32](t, binary.LittleEndian.AppendUint32(nil, math.Float32bits(1.5))), float32(1.5))
 	check("float64", decode[float64](t, binary.LittleEndian.AppendUint64(nil, math.Float64bits(-2.25))), float64(-2.25))
-	check("vec3", decode[Vec3](t, binary.LittleEndian.AppendUint32(
+	check("SomeStruct", decode[SomeStruct](t, binary.LittleEndian.AppendUint32(
 		binary.LittleEndian.AppendUint32(binary.LittleEndian.AppendUint32(nil, math.Float32bits(1)), math.Float32bits(2)),
-		math.Float32bits(3))), Vec3{1, 2, 3})
+		math.Float32bits(3))), SomeStruct{1, 2, 3})
 	check("padded", decode[padded](t, []byte{7, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 9, 0, 0, 0, 0, 0, 0, 0}), padded{7, 9})
 }
 
@@ -212,10 +212,10 @@ func TestC5_CSize(t *testing.T) {
 }
 
 type record struct {
-	ID     int32 `mem:"0x100"`
-	Class  uint8 `mem:"0x13C"`
-	Origin Vec3  `mem:"48"`
-	Cached int64 `mem:"-"`
+	ID     int32      `mem:"0x100"`
+	Class  uint8      `mem:"0x13C"`
+	Origin SomeStruct `mem:"48"`
+	Cached int64      `mem:"-"`
 	_      [8]byte
 }
 

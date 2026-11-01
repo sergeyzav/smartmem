@@ -10,14 +10,14 @@ import (
 	"github.com/sergeyzav/smartmem/backend/fake"
 )
 
-type Vec3 struct{ X, Y, Z float32 }
+type SomeStruct struct{ X, Y, Z float32 }
 
 // Record is the example from docs/DESIGN.md §9 / A.6:
 // two flat fields, one field behind a pointer, a string behind a pointer.
 type Record struct {
 	ID     int32
 	Class  uint8
-	Origin Vec3
+	Origin SomeStruct
 	Name   string
 }
 
@@ -32,7 +32,7 @@ func (p *Record) Bind(l *smartmem.Loader, base smartmem.Loc) {
 }
 
 // putRecord lays out a Record at base; its geometry and name live elsewhere.
-func putRecord(fp *fake.Proc, base, geom, name uint64, id int32, origin Vec3, label string) {
+func putRecord(fp *fake.Proc, base, geom, name uint64, id int32, origin SomeStruct, label string) {
 	fp.I32(base+0x100, id).Bytes(base+0x13C, []byte{2})
 	fp.U64(base+0x30, geom).U64(base+0x50, name)
 	fake.Put(fp, geom+0x90, origin)
@@ -56,11 +56,11 @@ func TestB4_ALAP(t *testing.T) {
 	} {
 		t.Run(fmt.Sprint("alap=", tc.alap), func(t *testing.T) {
 			e := newEnv(t)
-			putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, Vec3{1, 2, 3}, "neo")
+			putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, SomeStruct{1, 2, 3}, "neo")
 			b := e.s.NewBatch()
 			f := smartmem.Load[Record](b, e.p.At(0x10000), smartmem.WithALAP(tc.alap))
 			e.run(b)
-			want := Record{ID: 100, Class: 2, Origin: Vec3{1, 2, 3}, Name: "neo"}
+			want := Record{ID: 100, Class: 2, Origin: SomeStruct{1, 2, 3}, Name: "neo"}
 			if got := get(t, f); got != want {
 				t.Fatalf("got %+v, want %+v", got, want)
 			}
@@ -73,7 +73,7 @@ func TestB4_ALAP(t *testing.T) {
 // some fields were read a round earlier.
 func TestB1_AtomicPublish(t *testing.T) {
 	e := newEnv(t)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, Vec3{1, 2, 3}, "neo")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, SomeStruct{1, 2, 3}, "neo")
 	b := e.s.NewBatch()
 	f := smartmem.Load[Record](b, e.p.At(0x10000), smartmem.WithALAP(false))
 	checked := false
@@ -107,7 +107,7 @@ func (w *withOptional) Bind(l *smartmem.Loader, base smartmem.Loc) {
 // Optional field fails to its zero value instead.
 func TestB2_FieldErrors(t *testing.T) {
 	e := newEnv(t)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, Vec3{}, "neo")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, SomeStruct{}, "neo")
 	e.fp.U64(0x10050, 0)
 	e.fp.I32(0x40000, 5).U64(0x40010, 0)
 	b := e.s.NewBatch()
@@ -131,7 +131,7 @@ func TestB3_FailFast(t *testing.T) {
 	e := newEnv(t)
 	// The base sits so that ID and Class land on the next page, which is
 	// unmapped, while both pointer slots stay readable.
-	putRecord(e.fp, 0x10f00, 0x20000, 0x30000, 100, Vec3{}, "neo")
+	putRecord(e.fp, 0x10f00, 0x20000, 0x30000, 100, SomeStruct{}, "neo")
 	e.fp.Unmap(0x11000)
 	b := e.s.NewBatch()
 	f := smartmem.Load[Record](b, e.p.At(0x10f00), smartmem.WithALAP(false))
@@ -146,8 +146,8 @@ func TestB3_FailFast(t *testing.T) {
 // the round the base is known: list in round 1, pointers in 2, fields in 3.
 func TestB5_ALAPWithDynamicBase(t *testing.T) {
 	e := newEnv(t)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "a")
-	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, Vec3{}, "b")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{}, "a")
+	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, SomeStruct{}, "b")
 	e.fp.U64(0x8000, 0x10000).U64(0x8008, 0x50000)
 	b := e.s.NewBatch()
 	list := smartmem.ReadSlice[smartmem.Ptr[Record]](b, e.p.At(0x8000), 2)
@@ -168,8 +168,8 @@ func TestB5_ALAPWithDynamicBase(t *testing.T) {
 func TestB6_Revalidate(t *testing.T) {
 	t.Run("retry", func(t *testing.T) {
 		e := newEnv(t)
-		putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{1, 1, 1}, "neo")
-		fake.Put(e.fp, 0x21090, Vec3{9, 9, 9})
+		putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{1, 1, 1}, "neo")
+		fake.Put(e.fp, 0x21090, SomeStruct{9, 9, 9})
 		e.mem.OnRound(func(round int, _ *fake.Memory) {
 			if round == 2 { // after the pointer was read, before the fields
 				e.fp.U64(0x10030, 0x21000)
@@ -178,7 +178,7 @@ func TestB6_Revalidate(t *testing.T) {
 		b := e.s.NewBatch()
 		f := smartmem.Load[Record](b, e.p.At(0x10000), smartmem.Revalidate(1))
 		e.run(b)
-		if got := get(t, f).Origin; got != (Vec3{9, 9, 9}) {
+		if got := get(t, f).Origin; got != (SomeStruct{9, 9, 9}) {
 			t.Fatalf("Origin = %v, want the moved geometry's {9 9 9}", got)
 		}
 		if e.mem.Execs() != 4 {
@@ -187,7 +187,7 @@ func TestB6_Revalidate(t *testing.T) {
 	})
 	t.Run("unstable", func(t *testing.T) {
 		e := newEnv(t)
-		putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "neo")
+		putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{}, "neo")
 		e.mem.OnRound(func(round int, _ *fake.Memory) {
 			e.fp.U64(0x10030, 0x20000+uint64(round)*0x1000)
 			e.fp.Map(0x20000+uint64(round)*0x1000, fake.PageSize)
@@ -205,7 +205,7 @@ func TestB6_Revalidate(t *testing.T) {
 // re-reads join the last round's scatter.
 func TestB7_RevalidateIsFree(t *testing.T) {
 	e := newEnv(t)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "neo")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{}, "neo")
 	b := e.s.NewBatch()
 	f := smartmem.Load[Record](b, e.p.At(0x10000), smartmem.Revalidate(1))
 	e.run(b)
@@ -228,7 +228,7 @@ func (g *Group) Bind(l *smartmem.Loader, base smartmem.Loc) {
 // B8: Sub binds a nested struct whose fields are published with the outer one.
 func TestB8_Sub(t *testing.T) {
 	e := newEnv(t)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 7, Vec3{}, "root")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 7, SomeStruct{}, "root")
 	e.fp.U32(0x9000, 42).U64(0x9008, 0x10000)
 	b := e.s.NewBatch()
 	f := smartmem.Load[Group](b, e.p.At(0x9000))
@@ -242,8 +242,8 @@ func TestB8_Sub(t *testing.T) {
 func TestB9_LoadEach(t *testing.T) {
 	setup := func(t *testing.T) (*env, *smartmem.Future[[]smartmem.Ptr[Record]], *smartmem.Batch) {
 		e := newEnv(t)
-		putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "a")
-		putRecord(e.fp, 0x50000, 0x60000, 0x70000, 3, Vec3{}, "c")
+		putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{}, "a")
+		putRecord(e.fp, 0x50000, 0x60000, 0x70000, 3, SomeStruct{}, "c")
 		e.fp.U64(0x8000, 0x10000).U64(0x8008, 0).U64(0x8010, 0x90000).U64(0x8018, 0x50000)
 		b := e.s.NewBatch()
 		return e, smartmem.ReadSlice[smartmem.Ptr[Record]](b, e.p.At(0x8000), 4), b
@@ -277,8 +277,8 @@ func TestB9_LoadEach(t *testing.T) {
 // per element slot.
 func TestB10_BindOnce(t *testing.T) {
 	e := newEnv(t)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "a")
-	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, Vec3{}, "b")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{}, "a")
+	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, SomeStruct{}, "b")
 	e.fp.U64(0x8000, 0x10000).U64(0x8008, 0x50000)
 	recordBinds.Store(0)
 	b := e.s.NewBatch()
@@ -293,19 +293,19 @@ func TestB10_BindOnce(t *testing.T) {
 // A struct with mem tags is read field by field and published at once.
 func TestReadSparse(t *testing.T) {
 	type Item struct {
-		ID     int32  `mem:"0x100"`
-		Class  uint8  `mem:"0x13C"`
-		Origin Vec3   `mem:"0x30"`
-		Note   uint64 `mem:"-"`
+		ID     int32      `mem:"0x100"`
+		Class  uint8      `mem:"0x13C"`
+		Origin SomeStruct `mem:"0x30"`
+		Note   uint64     `mem:"-"`
 	}
 	e := newEnv(t)
 	e.fp.I32(0x10100, 50).Bytes(0x1013C, []byte{4})
-	fake.Put(e.fp, 0x10030, Vec3{1, 2, 3})
+	fake.Put(e.fp, 0x10030, SomeStruct{1, 2, 3})
 	e.fp.U64(0x9000, 0x10000)
 	b := e.s.NewBatch()
 	f := smartmem.Read[Item](b, e.p.Chain(e.p.At(0x9000), 0))
 	e.run(b)
-	if got := get(t, f); got != (Item{ID: 50, Class: 4, Origin: Vec3{1, 2, 3}}) {
+	if got := get(t, f); got != (Item{ID: 50, Class: 4, Origin: SomeStruct{1, 2, 3}}) {
 		t.Fatalf("got %+v", got)
 	}
 	e.assertTrace(`

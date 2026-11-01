@@ -51,11 +51,11 @@ defer be.Close()
 s := smartmem.New(be)
 p, err := s.ProcessByName("app.exe")
 
-type Vec3 struct{ X, Y, Z float32 }
+type SomeStruct struct{ X, Y, Z float32 }
 
 b := s.NewBatch()
 count  := smartmem.Read[int32](b, p.Module("core.dll").Add(0x1A2B30))
-origin := smartmem.Read[Vec3](b, p.Chain(p.Module("core.dll").Add(0x100), 0x30, 0x90))
+origin := smartmem.Read[SomeStruct](b, p.Chain(p.Module("core.dll").Add(0x100), 0x30, 0x90))
 if err := b.Run(ctx); err != nil { ... } // only fatal errors: ctx, backend
 
 v, err := count.Get() // errors of single requests live in their Futures
@@ -108,7 +108,7 @@ items := smartmem.Then(count, func(s smartmem.Scope, n uint32) *smartmem.Future[
 type Record struct {
     ID     int32
     Name   string
-    Origin Vec3
+    Origin SomeStruct
 }
 
 func (r *Record) Bind(l *smartmem.Loader, base smartmem.Loc) {

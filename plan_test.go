@@ -50,7 +50,7 @@ func TestP1_ExecRereads(t *testing.T) {
 
 type Summary struct {
 	ID     int32
-	Origin Vec3
+	Origin SomeStruct
 }
 
 func (s *Summary) Bind(l *smartmem.Loader, base smartmem.Loc) {
@@ -66,13 +66,13 @@ func TestP2_ZeroAlloc(t *testing.T) {
 	}
 	e := newEnv(t)
 	e.mem.SetTrace(false)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, Vec3{1, 2, 3}, "neo")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, SomeStruct{1, 2, 3}, "neo")
 	e.fp.U32(0x1000, 7)
 	unicodeString(e, 0x2000, 0x3000, "unchanged")
 
 	plan := e.s.NewPlan()
 	flat := smartmem.Read[uint32](plan, e.p.At(0x1000))
-	origin := smartmem.Read[Vec3](plan, e.p.Chain(e.p.At(0x10030), 0x90))
+	origin := smartmem.Read[SomeStruct](plan, e.p.Chain(e.p.At(0x10030), 0x90))
 	summary := smartmem.Load[Summary](plan, e.p.At(0x10000), smartmem.Revalidate(1))
 	name := smartmem.ReadString(plan, e.p.Chain(e.p.At(0x10050), 0), smartmem.CString(32))
 	path := smartmem.ReadString(plan, e.p.At(0x2000), smartmem.UnicodeString)
@@ -83,7 +83,7 @@ func TestP2_ZeroAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("Exec allocates %.1f times, want 0", allocs)
 	}
-	if get(t, twice) != 14 || get(t, origin) != (Vec3{1, 2, 3}) || get(t, summary).ID != 100 ||
+	if get(t, twice) != 14 || get(t, origin) != (SomeStruct{1, 2, 3}) || get(t, summary).ID != 100 ||
 		get(t, name) != "neo" || get(t, path) != "unchanged" {
 		t.Fatal("wrong values")
 	}
@@ -122,8 +122,8 @@ func TestP4_LoadEachSteadyState(t *testing.T) {
 	}
 	e := newEnv(t)
 	e.mem.SetTrace(false)
-	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "a")
-	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, Vec3{}, "b")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, SomeStruct{}, "a")
+	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, SomeStruct{}, "b")
 	e.fp.U64(0x8000, 0x10000).U64(0x8008, 0x50000)
 	plan := e.s.NewPlan()
 	list := smartmem.ReadSlice[smartmem.Ptr[Record]](plan, e.p.At(0x8000), 2)
