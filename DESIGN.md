@@ -307,7 +307,9 @@ An execution is a loop of rounds while there are pending nodes:
 6. **Distributing results**: copying/decoding into node buffers, errors of single nodes
    (`*PartialReadError{Addr, Want, Got}`, `*ReadError` wrapping the backend error),
    resolving futures, running continuations, which create the nodes of the next round.
-7. After `MaxRounds` (16 by default) the remaining nodes get `ErrMaxRounds`. This protects against cyclic lists.
+7. After `MaxRounds` (4096 by default) the remaining nodes get `ErrMaxRounds`. This protects against cyclic lists.
+   A linked list walked with `Then` takes one round per element, so the limit must stay above
+   the length of real lists (a process has hundreds of modules).
 
 **Writes through a chain**: the chain is resolved in the earlier rounds, and the write goes in the round where
 the address became known. There is no read-after-write order between separate requests of one
@@ -442,7 +444,7 @@ The fake backend implements it with a module table.
 | Option | Default |
 |---|---|
 | `WithFlags(uint64)` | `MemFlagNoCache` |
-| `WithMaxRounds(int)` | 16 |
+| `WithMaxRounds(int)` | 4096 |
 | `WithMaxGap(int)` | 64 |
 | `WithMaxStringLen(int)` | 4096 |
 
@@ -537,6 +539,7 @@ This way the concept is visible right in the test, and no separate golden files 
 | E5 | one of the round's addresses is on an unmapped page | an error only in the futures on that page, the rest succeed |
 | E6 | a partial read (`Truncate`) | `PartialReadError{Want, Got}` |
 | E7 | a cyclic list through a recursive `Then` | `ErrMaxRounds`, `Run` finishes |
+| E7b | a 1000-element linked list through a recursive `Then`, default options | walked to the end, no `ErrMaxRounds` |
 | E8 | a fatal backend error in round 2 | `Run` returns it, **all** pending futures get an error, no `Wait` hangs |
 | E9 | ctx cancelled between rounds | pending → `ctx.Err()`, no new `Exec` |
 | E10 | write X and read X in one round | the read sees the new value (writes before reads) |

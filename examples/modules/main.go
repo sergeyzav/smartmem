@@ -99,7 +99,7 @@ func withNames(s smartmem.Scope, p *smartmem.Process, es []entry) *smartmem.Futu
 
 func main() {
 	flag.Parse()
-	t, err := target.Open(smartmem.WithMaxRounds(4096))
+	t, err := target.Open()
 	if err != nil {
 		log.Fatal(err)
 	}

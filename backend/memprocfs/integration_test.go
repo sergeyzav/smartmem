@@ -147,7 +147,7 @@ func (e *ldrEntry) Bind(l *smartmem.Loader, base smartmem.Loc) {
 // entry must match a module from GetModuleList, and the walk must end at
 // the list head, not at MaxRounds.
 func TestM3_LoaderListWalk(t *testing.T) {
-	tg := setup(t, smartmem.WithMaxRounds(2000))
+	tg := setup(t)
 	peb, err := tg.p.PEB()
 	if err != nil {
 		t.Fatal(err)
