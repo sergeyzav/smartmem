@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/sergeyzav/smartmem/actions/workflows/ci.yml/badge.svg)](https://github.com/sergeyzav/smartmem/actions/workflows/ci.yml)
 [![Integration](https://github.com/sergeyzav/smartmem/actions/workflows/integration.yml/badge.svg)](https://github.com/sergeyzav/smartmem/actions/workflows/integration.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sergeyzav/smartmem.svg)](https://pkg.go.dev/github.com/sergeyzav/smartmem)
 
 Fast typed memory access for [MemProcFS](https://github.com/ufrisk/MemProcFS): scatter-batched reads and writes of primitives, structs, strings and pointer chains.
 
@@ -9,7 +10,7 @@ Built on top of [gomemprocfs](https://github.com/sergeyzav/gomemprocfs).
 
 ## Status
 
-Experimental. The API may change until v1.0. The design is in [docs/DESIGN.md](docs/DESIGN.md).
+Experimental. The API may change until v1.0. The API reference with runnable examples is on [pkg.go.dev](https://pkg.go.dev/github.com/sergeyzav/smartmem); the design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Features
 
