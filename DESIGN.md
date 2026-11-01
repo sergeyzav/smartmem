@@ -93,11 +93,19 @@ type Backend interface {
   otherwise an unreadable page cannot be told apart from zeros.
 
 **fake backend**
-- A sparse page map `map[pageAddr][4096]byte` per pid; unmapped pages give an error.
-- The `OnRound(func(round int, m *Memory))` hook changes memory between rounds,
-  to test revalidation and objects that "move".
-- Counters: the number of `Exec`s, the number of ops, bytes. Tests check exactly
-  the number of rounds and scatter calls.
+- A sparse page map `map[pageAddr]*[4096]byte` per pid; unmapped pages give `ErrUnmapped`,
+  an unknown pid gives the fatal `ErrNoProcess`.
+- A read across an unmapped page: `FailWhole` (default, `N=0`) or `Truncate` (`N` = the readable
+  prefix, no error; if no byte is readable, same as `FailWhole`). A write that touches an unmapped
+  page writes nothing.
+- The `OnRound(func(round int, m *Memory))` hook is called before the first `Exec` of a round and changes memory
+  between rounds, to test revalidation and objects that "move".
+- A trace and an `Exec` counter. Tests check exactly the number of rounds and scatter calls.
+  `SetTrace(false)` turns tracing off, because the trace allocates and gets in the way of allocation tests (T4, P2).
+
+**Rounds in the backend**: the fake needs the round number for the trace and `OnRound`. So `backend` has
+an optional interface `RoundAware { BeginRound(round int) }`. The engine calls it before the first `Exec`
+of every round, numbered from 1 in each execution. The memprocfs backend does not implement it.
 
 ## 4. Addresses: `Loc`
 
@@ -674,7 +682,7 @@ A stage is done when CI is green and the listed tests exist and pass.
 |---|---|---|
 | 0 | Repo skeleton: `go.mod` (`go 1.25`), `doc.go`, `internal/testutil.RaceEnabled`, `.golangci.yml`, `ci.yml`, README (title, status, Development). `gomemprocfs v0.3.0` is added to `go.mod` in stage 7, because `go mod tidy` removes it until the first import | CI is green on 3 OSes |
 | 1 | ~~gomemprocfs~~ | done (`v0.3.0`) |
-| 2 | `codec`, `Loc`, `backend`, `backend/fake` (with trace and `OnRound`) | T1–T4, C1–C5, L1, L5, Z3 |
+| 2 | `codec`, `Loc`, `backend`, `backend/fake` (with trace and `OnRound`), minimal `Session`/`Process` (`Session` options in stage 3) | T1–T4, C1–C5, L1 (structurally: `Chain` and `Deref/Add` give the same `Loc`; on the trace level together with the engine), L5, Z3 |
 | 3 | `engine`, `Future`, `Batch`, `Write` | L2–L4, E1–E15, F1–F6, Z1, Z2, `ExampleRead`, `ExampleChain` |
 | 4 | `Loader`, `Bind`, `Sub`, `LoadEach`, ALAP, revalidation | B1–B10, `ExampleLoad` |
 | 5 | `Plan`: freeze, pools, string reuse, `View` | P1–P7, `ExamplePlan` |
@@ -922,9 +930,12 @@ func codecFor[T any]() *codec // sync.Map[reflect.Type]*codec; called when descr
 
 - The blittable check walks `reflect.Type` recursively: allowed are `Int*`, `Uint*`, `Float*`, `Array`
   with a blittable element, `Struct` with blittable fields. Forbidden are `Bool`, `String`, `Slice`, `Map`, `Ptr`,
-  `Interface`, `Chan`, `Func`, `UnsafePointer`, `Uintptr` (addresses use `Addr`/`Ptr[T]`).
-- `memmove` decoding is correct only on a little-endian host. The package has a `//go:build`
-  constraint on `amd64 || arm64 || 386 || arm || riscv64 || loong64`.
+  `Interface`, `Chan`, `Func`, `UnsafePointer`, `Uintptr` (addresses use `Addr`/`Ptr[T]`), and also
+  `int`/`uint`, because their size depends on the platform.
+- `memmove` decoding is correct only on a **64-bit** little-endian host. On 32-bit hosts
+  (386, arm) Go aligns `int64` to 4 bytes, and the layout differs from x64 C. So `internal/codec` has
+  `//go:build amd64 || arm64 || riscv64 || loong64 || ppc64le || mips64le`, and on other platforms
+  the build fails with `undefined: smartmemNeedsA64BitLittleEndianHost`.
 - Sparse structs are not decoded whole: each field is a separate leaf in the graph with
   a `sink` that writes at `unsafe.Add(base, field.goOffset)`.
 
