@@ -91,7 +91,7 @@ Within a round, reads on the same page are merged and deduplicated, and writes g
 
 ### Futures
 
-`Read` returns a `*Future[T]`. `Get` never blocks; `Wait(ctx)` and `Done()` work across goroutines. Compose with `Map`, `Then` (a dependent request in the next round) and `All`.
+`Read` returns a `*Future[T]`. `Get` never blocks; `Wait(ctx)` and `Done()` work across goroutines. Compose with `Map`, `Then` (a dependent request in the next round) and `All`; `Resolved` and `Failed` end a `Then` with a computed value or an error.
 
 ```go
 count := smartmem.Read[uint32](b, p.At(listAddr))

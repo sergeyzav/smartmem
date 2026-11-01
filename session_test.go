@@ -82,4 +82,34 @@ func TestBackendWithoutProcessInfo(t *testing.T) {
 	if _, err := p.ModuleBase("x.dll"); !errors.Is(err, smartmem.ErrUnsupported) {
 		t.Errorf("ModuleBase: err=%v, want ErrUnsupported", err)
 	}
+	if _, err := p.PEB(); !errors.Is(err, smartmem.ErrUnsupported) {
+		t.Errorf("PEB: err=%v, want ErrUnsupported", err)
+	}
+}
+
+func TestPEB(t *testing.T) {
+	m := fake.New()
+	m.Proc(100).PEB(0x10000).U64(0x10018, 0x20000)
+	m.Proc(200)
+	s := smartmem.New(m)
+	p, err := s.Process(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peb, err := p.PEB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := s.NewBatch()
+	ldr := smartmem.Read[uint64](b, peb.Add(0x18))
+	if err := b.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := ldr.Get(); err != nil || v != 0x20000 {
+		t.Fatalf("PEB.Ldr = %#x, %v", v, err)
+	}
+	q, _ := s.Process(200)
+	if _, err := q.PEB(); !errors.Is(err, smartmem.ErrUnsupported) {
+		t.Fatalf("unknown PEB: err=%v, want ErrUnsupported", err)
+	}
 }

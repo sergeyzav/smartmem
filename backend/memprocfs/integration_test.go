@@ -148,13 +148,13 @@ func (e *ldrEntry) Bind(l *smartmem.Loader, base smartmem.Loc) {
 // the list head, not at MaxRounds.
 func TestM3_LoaderListWalk(t *testing.T) {
 	tg := setup(t, smartmem.WithMaxRounds(2000))
-	info, err := tg.vmm.GetProcessInfo(tg.pid)
+	peb, err := tg.p.PEB()
 	if err != nil {
 		t.Fatal(err)
 	}
 	b := tg.s.NewBatch()
-	head := tg.p.At(info.Win.PEB).Add(0x18).Deref().Add(0x10) // &Ldr->InLoadOrderModuleList
-	headAddr := smartmem.Map(smartmem.Read[uint64](b, tg.p.At(info.Win.PEB).Add(0x18)), func(ldr uint64) (uint64, error) {
+	head := peb.Add(0x18).Deref().Add(0x10) // &Ldr->InLoadOrderModuleList
+	headAddr := smartmem.Map(smartmem.Read[uint64](b, peb.Add(0x18)), func(ldr uint64) (uint64, error) {
 		return ldr + 0x10, nil
 	})
 	first := smartmem.Read[uint64](b, head)
@@ -163,9 +163,7 @@ func TestM3_LoaderListWalk(t *testing.T) {
 	walk = func(s smartmem.Scope, entry, stop uint64) *smartmem.Future[[]ldrEntry] {
 		return smartmem.Then(smartmem.Load[ldrEntry](s, tg.p.At(entry)), func(s smartmem.Scope, e ldrEntry) *smartmem.Future[[]ldrEntry] {
 			if e.Next == stop {
-				return smartmem.Map(smartmem.ReadSlice[uint8](s, tg.p.At(0), 0), func([]uint8) ([]ldrEntry, error) {
-					return []ldrEntry{e}, nil
-				})
+				return smartmem.Resolved(s, []ldrEntry{e})
 			}
 			return smartmem.Map(walk(s, e.Next, stop), func(rest []ldrEntry) ([]ldrEntry, error) {
 				return append([]ldrEntry{e}, rest...), nil

@@ -32,8 +32,9 @@ type Backend interface {
 // ProcInfo describes a target process.
 type ProcInfo struct {
 	PID   uint32
-	X64   bool // 64-bit memory model
-	Wow64 bool // 32-bit process on a 64-bit system
+	X64   bool   // 64-bit memory model
+	Wow64 bool   // 32-bit process on a 64-bit system
+	PEB   uint64 // address of the PEB, 0 if unknown
 }
 
 // ProcessInfo is an optional Backend interface for process and module lookups.

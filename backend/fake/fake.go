@@ -211,7 +211,7 @@ func (m *Memory) Info(pid uint32) (backend.ProcInfo, error) {
 	if p == nil {
 		return backend.ProcInfo{}, fmt.Errorf("%w: pid %d", ErrNoProcess, pid)
 	}
-	return backend.ProcInfo{PID: pid, X64: true, Wow64: p.wow64}, nil
+	return backend.ProcInfo{PID: pid, X64: true, Wow64: p.wow64, PEB: p.peb}, nil
 }
 
 // PidByName implements backend.ProcessInfo. Names are case-insensitive.
@@ -247,6 +247,7 @@ type Proc struct {
 	pid     uint32
 	name    string
 	wow64   bool
+	peb     uint64
 	pages   map[uint64]*[PageSize]byte
 	modules map[string]uint64
 }
@@ -266,6 +267,14 @@ func (p *Proc) Name(name string) *Proc {
 func (p *Proc) Wow64() *Proc {
 	p.m.mu.Lock()
 	p.wow64 = true
+	p.m.mu.Unlock()
+	return p
+}
+
+// PEB sets the PEB address reported by Info.
+func (p *Proc) PEB(addr uint64) *Proc {
+	p.m.mu.Lock()
+	p.peb = addr
 	p.m.mu.Unlock()
 	return p
 }

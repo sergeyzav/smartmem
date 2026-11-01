@@ -117,6 +117,7 @@ type Loc struct { /* proc *Process; base; ops []op (copy-on-append) */ }
 func (p *Process) At(addr uint64) Loc            // static address
 func (p *Process) Module(name string) Loc        // module base
 func (p *Process) Chain(base Loc, offs ...int64) Loc // sugar, CE notation
+func (p *Process) PEB() (Loc, error)             // from the backend; ErrUnsupported if unknown
 func LocOf[T any](f *Future[Ptr[T]]) Loc         // dynamic base from a future
 
 func (l Loc) Add(off int64) Loc
@@ -188,13 +189,16 @@ func (f *Future[T]) Gen() uint64                         // the number of the Pl
 func Map[T, U any](f *Future[T], fn func(T) (U, error)) *Future[U]
 func Then[T, U any](f *Future[T], fn func(s Scope, v T) *Future[U]) *Future[U] // dependent request
 func All[T any](fs ...*Future[T]) *Future[[]T]
+func Resolved[T any](s Scope, v T) *Future[T]      // ready value, no I/O
+func Failed[T any](s Scope, err error) *Future[T]  // ready error, no I/O
 ```
 
 - Continuations (`Map`, `Then`, `Loader` bodies) run on the engine goroutine as soon as
   the result is ready, between the `Exec`s of a round. They must be fast and must not block.
   New requests they create always go into the next round of the same
   execution (E15). `Then` must return a future created in the given `Scope`, or `nil`
-  (then the result is the zero value).
+  (then the result is the zero value). `Resolved` and `Failed` end a `Then` with a
+  computed value or an error without an extra round.
 
 ## 7. Scope: Batch, Plan, Scheduler
 

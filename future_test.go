@@ -164,3 +164,82 @@ func TestAllErrors(t *testing.T) {
 		smartmem.All(smartmem.Read[uint32](e.s.NewBatch(), e.p.At(0)), smartmem.Read[uint32](e.s.NewBatch(), e.p.At(0)))
 	})
 }
+
+// F9: Resolved and Failed are ready after Run without any I/O.
+func TestF9_ResolvedAndFailed(t *testing.T) {
+	e := newEnv(t)
+	b := e.s.NewBatch()
+	v := smartmem.Resolved(b, 7)
+	boom := errors.New("boom")
+	f := smartmem.Failed[string](b, boom)
+	e.run(b)
+	if get(t, v) != 7 {
+		t.Fatal("Resolved: wrong value")
+	}
+	if _, err := f.Get(); !errors.Is(err, boom) {
+		t.Fatalf("Failed: err=%v", err)
+	}
+	if n := e.mem.Execs(); n != 0 {
+		t.Fatalf("%d Execs, want 0", n)
+	}
+}
+
+// F10: ending a Then with Resolved or Failed costs no extra round.
+func TestF10_ResolvedEndsThen(t *testing.T) {
+	e := newEnv(t)
+	e.fp.U32(0x1000, 4).U32(0x2000, 0)
+	b := e.s.NewBatch()
+	double := func(loc smartmem.Loc) *smartmem.Future[uint32] {
+		return smartmem.Then(smartmem.Read[uint32](b, loc), func(s smartmem.Scope, v uint32) *smartmem.Future[uint32] {
+			if v == 0 {
+				return smartmem.Failed[uint32](s, errors.New("zero"))
+			}
+			return smartmem.Resolved(s, v*2)
+		})
+	}
+	ok, bad := double(e.p.At(0x1000)), double(e.p.At(0x2000))
+	e.run(b)
+	if get(t, ok) != 8 {
+		t.Fatal("wrong value")
+	}
+	if _, err := bad.Get(); err == nil || err.Error() != "zero" {
+		t.Fatalf("err=%v", err)
+	}
+	if n := e.mem.Execs(); n != 1 {
+		t.Fatalf("%d Execs, want 1", n)
+	}
+}
+
+// F11: in a Plan, Resolved inside Then follows the value of every Exec.
+func TestF11_ResolvedInPlan(t *testing.T) {
+	e := newEnv(t)
+	e.fp.U32(0x1000, 1)
+	p := e.s.NewPlan()
+	c := smartmem.Resolved(p, "const")
+	f := smartmem.Then(smartmem.Read[uint32](p, e.p.At(0x1000)), func(s smartmem.Scope, v uint32) *smartmem.Future[string] {
+		return smartmem.Resolved(s, fmt.Sprint(v))
+	})
+	for _, want := range []uint32{1, 2, 3} {
+		e.fp.U32(0x1000, want)
+		if err := p.Exec(e.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := get(t, f); got != fmt.Sprint(want) {
+			t.Fatalf("got %q, want %d", got, want)
+		}
+		if get(t, c) != "const" {
+			t.Fatal("constant lost")
+		}
+	}
+}
+
+// F12: Resolved works from any goroutine through a Scheduler.
+func TestF12_ResolvedInScheduler(t *testing.T) {
+	e := newEnv(t)
+	sch := smartmem.NewScheduler(e.s)
+	defer sch.Close()
+	v, err := smartmem.Resolved(sch, 5).Wait(e.ctx)
+	if err != nil || v != 5 {
+		t.Fatalf("got %v, %v", v, err)
+	}
+}
