@@ -151,3 +151,204 @@ func ExampleScheduler() {
 	// chained 42
 	// counter 7
 }
+
+// Requests in one Batch share rounds: the two plain reads and the first
+// pointer of the chain go into round 1, and the trace of the fake backend
+// shows one scatter operation per round.
+func Example() {
+	mem := fake.New()
+	mem.Proc(4242).
+		U32(0x1000, 7).U32(0x1008, 9).
+		U64(0x2000, 0x5000).U32(0x5010, 42)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	b := s.NewBatch()
+	a := smartmem.Read[uint32](b, p.At(0x1000))
+	c := smartmem.Read[uint32](b, p.At(0x1008))
+	d := smartmem.Read[uint32](b, p.Chain(p.At(0x2000), 0x10)) // [0x2000]+0x10
+	if err := b.Run(context.Background()); err != nil {
+		panic(err)
+	}
+
+	va, _ := a.Get()
+	vc, _ := c.Get()
+	vd, _ := d.Get()
+	fmt.Println(va, vc, vd)
+	fmt.Print(mem.Trace())
+	// Output:
+	// 7 9 42
+	// r1 pid=4242 R 0x1000+12 R 0x2000+8
+	// r2 pid=4242 R 0x5010+4
+}
+
+// Then follows a linked list: each element's address is known only after the
+// previous one is read, so the walk takes one round per element. Resolved
+// ends the walk with the collected values.
+func ExampleThen() {
+	// A list of three nodes: {next uint64; value uint32}.
+	mem := fake.New()
+	mem.Proc(4242).
+		U64(0x1000, 0x2000).U32(0x1008, 10).
+		U64(0x2000, 0x3000).U32(0x2008, 20).
+		U64(0x3000, 0).U32(0x3008, 30)
+
+	type node struct {
+		Next  uint64
+		Value uint32
+		_     [4]byte
+	}
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	var walk func(s smartmem.Scope, addr uint64, acc []uint32) *smartmem.Future[[]uint32]
+	walk = func(s smartmem.Scope, addr uint64, acc []uint32) *smartmem.Future[[]uint32] {
+		n := smartmem.Read[node](s, p.At(addr))
+		return smartmem.Then(n, func(s smartmem.Scope, n node) *smartmem.Future[[]uint32] {
+			acc = append(acc, n.Value)
+			if n.Next == 0 {
+				return smartmem.Resolved(s, acc)
+			}
+			return walk(s, n.Next, acc)
+		})
+	}
+
+	b := s.NewBatch()
+	values := walk(b, 0x1000, nil)
+	if err := b.Run(context.Background()); err != nil {
+		panic(err)
+	}
+	v, err := values.Get()
+	fmt.Println(v, err, mem.Execs(), "rounds")
+	// Output: [10 20 30] <nil> 3 rounds
+}
+
+// LoadEach loads a struct for every pointer of an array. Nil pointers are
+// skipped, and all elements are read by the same rounds.
+func ExampleLoadEach() {
+	mem := fake.New()
+	proc := mem.Proc(4242)
+	for i, name := range []string{"alpha", "beta"} {
+		base := uint64(0x10000 * (i + 1))
+		proc.I32(base+0x10, int32(i+1)).
+			U64(base+0x18, base+0x100).Bytes(base+0x100, append([]byte(name), 0)).
+			U64(base+0x20, base+0x200)
+	}
+	// An array of three pointers; the middle one is nil.
+	proc.U64(0x1000, 0x10000).U64(0x1008, 0).U64(0x1010, 0x20000)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	b := s.NewBatch()
+	ptrs := smartmem.ReadSlice[smartmem.Ptr[Item]](b, p.At(0x1000), 3)
+	items := smartmem.LoadEach[Item](b, p, ptrs)
+	if err := b.Run(context.Background()); err != nil {
+		panic(err)
+	}
+	list, _ := items.Get()
+	for _, it := range list {
+		fmt.Println(it.ID, it.Name)
+	}
+	// Output:
+	// 1 alpha
+	// 2 beta
+}
+
+// ReadString reads C strings, UTF-16 strings and Windows UNICODE_STRINGs.
+func ExampleReadString() {
+	mem := fake.New()
+	mem.Proc(4242).
+		Bytes(0x1000, []byte("core.dll\x00")).
+		Bytes(0x2000, []byte{'h', 0, 'i', 0, 0, 0}).
+		// UNICODE_STRING{Length: 4, MaximumLength: 6, Buffer: 0x2000}
+		Bytes(0x3000, []byte{4, 0, 6, 0, 0, 0, 0, 0}).U64(0x3008, 0x2000)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	b := s.NewBatch()
+	c := smartmem.ReadString(b, p.At(0x1000), smartmem.CString(32))
+	w := smartmem.ReadString(b, p.At(0x2000), smartmem.UTF16(8))
+	u := smartmem.ReadString(b, p.At(0x3000), smartmem.UnicodeString)
+	if err := b.Run(context.Background()); err != nil {
+		panic(err)
+	}
+	vc, _ := c.Get()
+	vw, _ := w.Get()
+	vu, _ := u.Get()
+	fmt.Println(vc, vw, vu)
+	// Output: core.dll hi hi
+}
+
+// Write runs before the reads of its round, so a read of the same address in
+// the same Batch sees the new value.
+func ExampleWrite() {
+	mem := fake.New()
+	mem.Proc(4242).U32(0x1000, 1)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	b := s.NewBatch()
+	w := smartmem.Write(b, p.At(0x1000), uint32(5))
+	r := smartmem.Read[uint32](b, p.At(0x1000))
+	if err := b.Run(context.Background()); err != nil {
+		panic(err)
+	}
+	_, werr := w.Get()
+	v, _ := r.Get()
+	fmt.Println(v, werr)
+	// Output: 5 <nil>
+}
+
+// Run executes the Batches of two subsystems together, so their reads share
+// one scatter operation.
+func ExampleRun() {
+	mem := fake.New()
+	mem.Proc(4242).U32(0x1000, 1).U32(0x8000, 2)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	first, second := s.NewBatch(), s.NewBatch()
+	a := smartmem.Read[uint32](first, p.At(0x1000))
+	b := smartmem.Read[uint32](second, p.At(0x8000))
+	if err := smartmem.Run(context.Background(), first, second); err != nil {
+		panic(err)
+	}
+	va, _ := a.Get()
+	vb, _ := b.Get()
+	fmt.Println(va, vb, mem.Execs(), "scatter operation")
+	// Output: 1 2 1 scatter operation
+}
+
+// Next follows the values of a Plan: a reader keeps the generation it saw and
+// asks for a newer one.
+func ExampleFuture_Next() {
+	mem := fake.New()
+	proc := mem.Proc(4242).U32(0x1000, 1)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+	plan := s.NewPlan()
+	f := smartmem.Read[uint32](plan, p.At(0x1000))
+
+	ctx := context.Background()
+	var gen uint64
+	for _, v := range []uint32{1, 2, 3} {
+		proc.U32(0x1000, v)
+		if err := plan.Exec(ctx); err != nil {
+			panic(err)
+		}
+		var got uint32
+		got, gen, _ = f.Next(ctx, gen)
+		fmt.Println(gen, got)
+	}
+	// Output:
+	// 1 1
+	// 2 2
+	// 3 3
+}

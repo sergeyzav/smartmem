@@ -9,10 +9,12 @@ import (
 	"github.com/sergeyzav/smartmem/internal/engine"
 )
 
-// Read describes a read of a T at loc. T is either blittable (fixed-size
-// numbers, arrays and structs of them, Ptr, Addr, CBool), read as one range,
-// or a sparse struct with `mem:"<offset>"` tags, whose fields are read on
-// their own and published together. An unsupported T panics with a *TypeError.
+// Read describes a read of a T at loc. T is either blittable (sized numbers,
+// arrays and structs of them, [Ptr], [Addr], [CBool]), read as one range, or a
+// sparse struct with `mem:"<offset>"` tags, whose fields are read on their own
+// and published together. An unsupported T panics with a [*TypeError].
+//
+// The value is ready after as many rounds as loc has Derefs, plus one.
 func Read[T any](s Scope, loc Loc) *Future[T] {
 	g := s.scope()
 	c := codec.MustOf[T]()
@@ -38,7 +40,9 @@ func (s *valueSink[T]) Done(b []byte, err error) {
 	s.f.resolveStaged(err)
 }
 
-// ReadSlice describes a read of n consecutive Ts at loc, as one range.
+// ReadSlice describes a read of n consecutive Ts at loc, as one range. T
+// must be blittable. With n = 0 the result is an empty slice and nothing is
+// read; a negative n panics.
 func ReadSlice[T any](s Scope, loc Loc, n int) *Future[[]T] {
 	g := s.scope()
 	c := codec.MustOf[T]()
@@ -79,7 +83,8 @@ type resolved func()
 func (fn resolved) schedule(*engine.Run) { fn() }
 func (fn resolved) fail(error)           { fn() }
 
-// StringKind says how a string is stored in memory.
+// StringKind says how a string is stored in memory: [CString], [UTF16] or
+// [UnicodeString]. The zero StringKind is invalid.
 type StringKind struct {
 	enc      uint8
 	max      int
@@ -100,18 +105,23 @@ func CString(maxBytes int) StringKind { return StringKind{enc: encCString, max: 
 // code units, including the NUL.
 func UTF16(maxChars int) StringKind { return StringKind{enc: encUTF16, max: 2 * maxChars} }
 
-// UnicodeString is a Windows UNICODE_STRING. It takes two rounds: the header,
-// then the characters. The length is capped by WithMaxStringLen.
+// UnicodeString is a Windows UNICODE_STRING: a length and a pointer to UTF-16
+// characters. It takes one more round than the other kinds, first the header,
+// then the characters. The length is capped by [WithMaxStringLen].
 var UnicodeString = StringKind{enc: encUnicodeString}
 
 // Truncate returns the kind that keeps the whole buffer when there is no
-// terminator, instead of failing with ErrNoTerminator.
+// terminator, instead of failing with [ErrNoTerminator].
 func (k StringKind) Truncate() StringKind {
 	k.truncate = true
 	return k
 }
 
-// ReadString describes a read of a string at loc.
+// ReadString describes a read of a string at loc. [CString] and [UTF16] read
+// their maximum length as one range and cut it at the terminator, so the
+// buffer may extend past the string but must be readable. In a [Plan], a
+// string whose bytes did not change since the previous Exec is not decoded
+// or allocated again.
 func ReadString(s Scope, loc Loc, kind StringKind) *Future[string] {
 	g := s.scope()
 	f := newFuture[string](g)
@@ -216,9 +226,11 @@ func (s *unicodeBufSink) Done(b []byte, err error) {
 	s.done(s.memo.s, nil)
 }
 
-// Write describes a write of v at loc. Writes run before reads in their round
-// and are never merged. The Future fails only if the backend reports an error
-// for this write. Plans do not support writes.
+// Write describes a write of v at loc; T must be blittable. A pointer chain
+// in loc is resolved in the earlier rounds, and the write goes in the round
+// where its address is known, before the reads of that round. Writes are
+// never merged. The Future fails only if the chain or the backend fails for
+// this write. Plans do not support writes: Write panics in a Plan.
 func Write[T any](s Scope, loc Loc, v T) *Future[struct{}] {
 	g := s.scope()
 	if g.pub != nil {
@@ -240,7 +252,9 @@ type writeSink struct{ f *Future[struct{}] }
 
 func (s *writeSink) Done(_ []byte, err error) { s.f.resolve(struct{}{}, err) }
 
-// ReadNow reads a T at loc in a Batch of its own.
+// ReadNow reads a T at loc in a Batch of its own. It is convenient for a
+// single value; values needed together should be described in one [Batch],
+// where they share rounds.
 func ReadNow[T any](ctx context.Context, loc Loc) (T, error) {
 	loc.mustBeValid()
 	b := loc.proc.s.NewBatch()
@@ -252,7 +266,7 @@ func ReadNow[T any](ctx context.Context, loc Loc) (T, error) {
 	return f.Get()
 }
 
-// WriteNow writes v at loc in a Batch of its own.
+// WriteNow writes v at loc in a Batch of its own, as [Write] describes it.
 func WriteNow[T any](ctx context.Context, loc Loc, v T) error {
 	loc.mustBeValid()
 	b := loc.proc.s.NewBatch()

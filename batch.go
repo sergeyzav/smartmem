@@ -24,7 +24,7 @@ func (b *Batch) scope() *graph { return &b.g }
 
 // Run executes the Batch. It returns an error only if ctx is done or the
 // backend failed as a whole; errors of single requests are in their Futures.
-// A second call returns ErrBatchDone.
+// A second call returns [ErrBatchDone].
 func (b *Batch) Run(ctx context.Context) error { return Run(ctx, b) }
 
 func (b *Batch) check() error {
@@ -45,8 +45,8 @@ func (b *Batch) prepare() *graph {
 
 func (b *Batch) finish() {}
 
-// Runnable is something Run can execute: a *Batch or a *Plan. A Plan run
-// through Run is published like after Exec.
+// Runnable is something [Run] can execute: a [*Batch] or a [*Plan]. A Plan
+// run through Run is published as after [Plan.Exec].
 type Runnable interface {
 	check() error    // without side effects
 	prepare() *graph // after every check passed
@@ -55,7 +55,9 @@ type Runnable interface {
 
 // Run executes several Batches and Plans together: their requests share
 // rounds, so independent requests of different subsystems go into the same
-// scatter operation. All of them must come from the same Session.
+// scatter operation. It returns errors as [Batch.Run] does. All of them must
+// come from the same Session, and each may be passed only once; otherwise Run
+// panics.
 func Run(ctx context.Context, rs ...Runnable) error {
 	if len(rs) == 0 {
 		return nil

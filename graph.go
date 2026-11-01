@@ -4,8 +4,9 @@ import (
 	"github.com/sergeyzav/smartmem/internal/engine"
 )
 
-// Scope is where requests are described: a *Batch, a *Plan, a *Scheduler, a
-// *Loader, or the scope Then hands to its callback.
+// Scope is where requests are described: a [*Batch], a [*Plan], a
+// [*Scheduler], or the Scope that [Then] passes to its callback. Only this
+// package implements it.
 type Scope interface {
 	scope() *graph
 }

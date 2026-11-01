@@ -19,9 +19,10 @@ const (
 // a new Loc.
 //
 // Semantics: p.At(x).Deref().Add(o) reads the pointer y stored at x, and the
-// location is y+o. Process.Chain follows the bracket notation [[B]+o1]+o2.
+// location is y+o. [Process.Chain] follows the bracket notation [[B]+o1]+o2.
 //
-// The zero Loc is invalid; build one with Process.At or Process.Module.
+// The zero Loc is invalid; build one with [Process.At], [Process.Module] or
+// [Process.PEB]. Using the zero Loc panics.
 type Loc struct {
 	proc   *Process
 	kind   baseKind
@@ -76,11 +77,12 @@ func (l Loc) Deref() Loc {
 	return l
 }
 
-// Index moves the location to element i of an array with the given stride.
+// Index moves the location to element i of an array with the given stride,
+// that is Add(i*stride).
 func (l Loc) Index(i, stride int) Loc { return l.Add(int64(i) * int64(stride)) }
 
-// Depth returns the number of Derefs. static is false when the depth is only
-// known at run time; that is never the case yet.
+// Depth returns the number of Derefs. static is always true in this version;
+// it is reserved for locations whose depth is known only at run time.
 func (l Loc) Depth() (n int, static bool) {
 	l.mustBeValid()
 	return len(l.offs) - 1, true

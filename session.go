@@ -9,8 +9,9 @@ import (
 	"github.com/sergeyzav/smartmem/internal/engine"
 )
 
-// Session is the entry point: it owns a Backend and hands out Processes.
-// It is safe for concurrent use.
+// Session is the entry point: it holds a backend and the options, and hands
+// out Processes. A program usually has one Session per backend. It is safe
+// for concurrent use.
 type Session struct {
 	be   backend.Backend
 	info backend.ProcessInfo // nil if the backend has no process lookups
@@ -18,7 +19,8 @@ type Session struct {
 	runs sync.Pool // *engine.Run
 }
 
-// New returns a Session over be.
+// New returns a Session over be. The Session does not close be: the caller
+// closes it when the Session is no longer used.
 func New(be backend.Backend, opts ...Option) *Session {
 	s := &Session{be: be, opts: defaultOptions()}
 	for _, o := range opts {
@@ -42,9 +44,9 @@ func (s *Session) getRun() *engine.Run {
 
 func (s *Session) putRun(r *engine.Run) { s.runs.Put(r) }
 
-// Process returns the process with this pid. In v1 only native x64 processes
-// are supported: others return ErrUnsupported. If the backend cannot describe
-// processes, the process is assumed to be x64.
+// Process returns the process with this pid. Only native x64 processes are
+// supported: others return [ErrUnsupported]. If the backend does not
+// implement [backend.ProcessInfo], the process is assumed to be x64.
 func (s *Session) Process(pid uint32) (*Process, error) {
 	var peb uint64
 	if s.info != nil {
@@ -87,11 +89,11 @@ type Process struct {
 // PID returns the process id.
 func (p *Process) PID() uint32 { return p.pid }
 
-// PtrSize returns the pointer size in bytes. It is always 8 in v1.
+// PtrSize returns the pointer size in bytes. It is always 8 in this version.
 func (p *Process) PtrSize() int { return p.ptrSize }
 
 // PEB returns the location of the process environment block. It fails with
-// ErrUnsupported if the backend does not report it.
+// [ErrUnsupported] if the backend does not report it.
 func (p *Process) PEB() (Loc, error) {
 	if p.peb == 0 {
 		return Loc{}, fmt.Errorf("smartmem: process %d: PEB address unknown: %w", p.pid, ErrUnsupported)
