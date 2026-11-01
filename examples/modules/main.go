@@ -45,15 +45,19 @@ type entry struct {
 	ldrEntry
 }
 
-func listModules(ctx context.Context, s *smartmem.Session, p *smartmem.Process, peb uint64) ([]Module, error) {
+func listModules(ctx context.Context, s *smartmem.Session, p *smartmem.Process) ([]Module, error) {
+	peb, err := p.PEB()
+	if err != nil {
+		return nil, err
+	}
 	b := s.NewBatch()
-	ldr := smartmem.Read[uint64](b, p.At(peb+pebLdr))
+	ldr := smartmem.Read[uint64](b, peb.Add(pebLdr))
 	mods := smartmem.Then(ldr, func(s smartmem.Scope, ldr uint64) *smartmem.Future[[]Module] {
 		head := ldr + ldrInLoadOrder
 		first := smartmem.Read[uint64](s, p.At(head))
 		return smartmem.Then(first, func(s smartmem.Scope, first uint64) *smartmem.Future[[]Module] {
 			if first == head {
-				return nil
+				return smartmem.Resolved(s, []Module{})
 			}
 			return smartmem.Then(walk(s, p, first, head, nil), func(s smartmem.Scope, es []entry) *smartmem.Future[[]Module] {
 				return withNames(s, p, es)
@@ -73,7 +77,7 @@ func walk(s smartmem.Scope, p *smartmem.Process, addr, head uint64, acc []entry)
 	return smartmem.Then(e, func(s smartmem.Scope, v ldrEntry) *smartmem.Future[[]entry] {
 		acc = append(acc, entry{addr, v})
 		if v.Next == head {
-			return smartmem.Map(e, func(ldrEntry) ([]entry, error) { return acc, nil })
+			return smartmem.Resolved(s, acc)
 		}
 		return walk(s, p, v.Next, head, acc)
 	})
@@ -101,11 +105,7 @@ func main() {
 	}
 	defer t.Close()
 
-	info, err := t.Vmm.GetProcessInfo(t.P.PID())
-	if err != nil {
-		log.Fatal(err)
-	}
-	mods, err := listModules(context.Background(), t.S, t.P, info.Win.PEB)
+	mods, err := listModules(context.Background(), t.S, t.P)
 	if err != nil {
 		log.Fatal(err)
 	}

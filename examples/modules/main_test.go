@@ -40,7 +40,7 @@ func TestListModules(t *testing.T) {
 	}
 	mem := fake.New()
 	p := mem.Proc(100)
-	p.U64(peb+pebLdr, ldr).U64(head, 0x30000)
+	p.PEB(peb).U64(peb+pebLdr, ldr).U64(head, 0x30000)
 	for i, m := range want {
 		addr := uint64(0x30000 + i*0x1000)
 		next := addr + 0x1000
@@ -55,7 +55,7 @@ func TestListModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := listModules(context.Background(), s, proc, peb)
+	got, err := listModules(context.Background(), s, proc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,10 +70,10 @@ func TestListModules(t *testing.T) {
 
 func TestListModulesEmpty(t *testing.T) {
 	mem := fake.New()
-	mem.Proc(100).U64(peb+pebLdr, ldr).U64(head, head)
+	mem.Proc(100).PEB(peb).U64(peb+pebLdr, ldr).U64(head, head)
 	s := smartmem.New(mem)
 	proc, _ := s.Process(100)
-	got, err := listModules(context.Background(), s, proc, peb)
+	got, err := listModules(context.Background(), s, proc)
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got %v, %v", got, err)
 	}

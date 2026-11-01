@@ -78,17 +78,12 @@ func inspect(s smartmem.Scope, p *smartmem.Process, m Module) *smartmem.Future[P
 	return smartmem.Then(lfanew, func(s smartmem.Scope, off int32) *smartmem.Future[PE] {
 		nt := base.Add(int64(off))
 		return smartmem.Then(smartmem.Read[ntHeaders](s, nt), func(s smartmem.Scope, h ntHeaders) *smartmem.Future[PE] {
-			valid := string(h.Signature[:]) == "PE\x00\x00"
-			n := int(h.File.NumberOfSections)
-			if !valid {
-				n = 0
+			if string(h.Signature[:]) != "PE\x00\x00" {
+				return smartmem.Failed[PE](s, fmt.Errorf("%s: no PE signature at %#x", m.Name, m.Base+uint64(off)))
 			}
 			table := nt.Add(0x18 + int64(h.File.SizeOfOptionalHeader))
-			secs := smartmem.ReadSlice[sectionHeader](s, table, n)
+			secs := smartmem.ReadSlice[sectionHeader](s, table, int(h.File.NumberOfSections))
 			return smartmem.Map(secs, func(secs []sectionHeader) (PE, error) {
-				if !valid {
-					return PE{}, fmt.Errorf("%s: no PE signature at %#x", m.Name, m.Base+uint64(off))
-				}
 				pe := PE{
 					Module:      m,
 					Machine:     h.File.Machine,
