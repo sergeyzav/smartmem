@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/sergeyzav/smartmem/backend"
+	"github.com/sergeyzav/smartmem/internal/engine"
 )
 
 // Session is the entry point: it owns a Backend and hands out Processes.
@@ -13,14 +14,33 @@ import (
 type Session struct {
 	be   backend.Backend
 	info backend.ProcessInfo // nil if the backend has no process lookups
+	opts options
+	runs sync.Pool // *engine.Run
 }
 
 // New returns a Session over be.
-func New(be backend.Backend) *Session {
-	s := &Session{be: be}
+func New(be backend.Backend, opts ...Option) *Session {
+	s := &Session{be: be, opts: defaultOptions()}
+	for _, o := range opts {
+		o(&s.opts)
+	}
 	s.info, _ = be.(backend.ProcessInfo)
 	return s
 }
+
+func (s *Session) engineOptions() engine.Options {
+	return engine.Options{MaxRounds: s.opts.maxRounds, MaxGap: uint64(s.opts.maxGap)}
+}
+
+func (s *Session) getRun() *engine.Run {
+	if r, ok := s.runs.Get().(*engine.Run); ok {
+		r.Reset(s.be, s.engineOptions())
+		return r
+	}
+	return engine.NewRun(s.be, s.engineOptions())
+}
+
+func (s *Session) putRun(r *engine.Run) { s.runs.Put(r) }
 
 // Process returns the process with this pid. In v1 only native x64 processes
 // are supported: others return ErrUnsupported. If the backend cannot describe

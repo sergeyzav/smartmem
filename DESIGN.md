@@ -190,9 +190,11 @@ func Then[T, U any](f *Future[T], fn func(s Scope, v T) *Future[U]) *Future[U] /
 func All[T any](fs ...*Future[T]) *Future[[]T]
 ```
 
-- Continuations (`Map`, `Then`, `Loader` bodies) run on the engine goroutine between rounds.
-  They must be fast and must not block. New requests they
-  create go into the next round of the same execution.
+- Continuations (`Map`, `Then`, `Loader` bodies) run on the engine goroutine as soon as
+  the result is ready, between the `Exec`s of a round. They must be fast and must not block.
+  New requests they create always go into the next round of the same
+  execution (E15). `Then` must return a future created in the given `Scope`, or `nil`
+  (then the result is the zero value).
 
 ## 7. Scope: Batch, Plan, Scheduler
 
@@ -282,7 +284,7 @@ An execution is a loop of rounds while there are pending nodes:
    `MaxGap` (64 bytes by default) **and the merged range does not cross a 4 KiB page boundary**.
    This way an unreadable page fails only the requests on it. A request that itself
    crosses a page boundary is prepared as is and not merged.
-5. **Exec** of the backend per group, sequentially (running groups in parallel is the `ParallelGroups` option).
+5. **Exec** of the backend per group, sequentially. v1 does not run groups in parallel.
    Within a round, writes run before reads.
 6. **Distributing results**: copying/decoding into node buffers, errors of single nodes
    (`*PartialReadError{Addr, Want, Got}`, `*ReadError` wrapping the backend error),
@@ -419,7 +421,6 @@ The fake backend implements it with a module table.
 | `WithMaxRounds(int)` | 16 |
 | `WithMaxGap(int)` | 64 |
 | `WithMaxStringLen(int)` | 4096 |
-| `WithParallelGroups(bool)` | false |
 
 ## 13. Testing
 
@@ -699,6 +700,27 @@ structs from PDB/C headers; maybe `WriteVerify` (re-reading what was written), i
 
 # Appendix A. Internals (for the implementation)
 
+## A.0 How it is implemented (stage 3) and how it differs from the sketch below
+
+Sections A.1–A.9 are the initial sketch. The implementation differs in these places:
+
+- **Nodes are linked by pointers** (`*engine.Node`), not by indexes into a slab. A node's state is just its address
+  and the round it can run in; there is no separate state machine. A Plan reuses the same
+  nodes between `Exec`s, so no template needs to be copied.
+- `internal/engine` knows nothing about `Loc`, `Future` or the codec: it runs chains
+  `Deref → … → Leaf|Write` and hands the bytes to a `Sink`. Compiling a `Loc` into nodes, futures and decoding
+  live in the root package.
+- `Node.Delay` (ALAP), `Node.Skip` (nodes of a failed Loader) and `Node.Observer` (revalidation sees
+  the pointers read) are the hooks for stage 4.
+- The writes and reads of a group are separated explicitly, not through the sort order.
+- Coalescing: a request that itself crosses a page boundary gets its own span and ends the current one.
+- A fatal error, a cancelled ctx and `MaxRounds` give the error to every node in the queue, including
+  those that sinks add while handling errors. So no future is left hanging.
+- **`publishLock`** is a reader-preferring RW lock on a `sync.Cond`. `sync.RWMutex` does not fit:
+  `Get` inside `Plan.View` takes the read lock again, and with `RWMutex` that deadlocks if a writer is already waiting
+  between the two `RLock`s.
+- A single `engine.Run` pool per Session (`sync.Pool`), so round buffers are reused.
+
 ## A.1 Request graph
 
 Each public call (`Read`, `Field`, `Write`, `Then`…) compiles into
@@ -947,7 +969,7 @@ func codecFor[T any]() *codec // sync.Map[reflect.Type]*codec; called when descr
 | `Process` | yes | module cache under a `sync.RWMutex` |
 | `Batch` (describing) | no | — |
 | `Plan.Exec` | serialized | an internal mutex |
-| `Plan` futures / `View` | yes | publish `RWMutex` |
+| `Plan` futures / `View` | yes | `publishLock`: our own reader-preferring RW lock (see A.0) |
 | `Scheduler` | yes | `mu` on the queue |
 | `Future.Get/Wait/Done` | yes | atomic state + `mu` for done |
 
