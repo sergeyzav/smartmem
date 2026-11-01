@@ -9,7 +9,7 @@ Built on top of [gomemprocfs](https://github.com/sergeyzav/gomemprocfs).
 
 ## Status
 
-Experimental. The API may change until v1.0. The design is in [DESIGN.md](DESIGN.md).
+Experimental. The API may change until v1.0. The design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Features
 

@@ -12,7 +12,7 @@ import (
 
 type Vec3 struct{ X, Y, Z float32 }
 
-// Record is the example from DESIGN.md §9 / A.6:
+// Record is the example from docs/DESIGN.md §9 / A.6:
 // two flat fields, one field behind a pointer, a string behind a pointer.
 type Record struct {
 	ID     int32
