@@ -20,6 +20,8 @@ type graph struct {
 	resets []resetter
 	commit []committer
 	kind   string
+	plan   *Plan
+	gen    uint64 // the execution being committed (Plan: set under pub)
 }
 
 func (g *graph) scope() *graph { return g }

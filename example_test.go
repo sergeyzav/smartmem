@@ -88,3 +88,33 @@ func ExampleLoad() {
 	fmt.Printf("%+v %v\n", m, err)
 	// Output: {HP:250 Name:Grue Pos:{X:1 Y:2 Z:3}} <nil>
 }
+
+// A Plan is described once and executed every tick, without allocating.
+// View reads several values of the same tick.
+func ExamplePlan() {
+	mem := fake.New()
+	game := mem.Proc(4242).U32(0x1000, 100).U32(0x1004, 50)
+
+	s := smartmem.New(mem)
+	p, _ := s.Process(4242)
+
+	plan := s.NewPlan()
+	hp := smartmem.Read[int32](plan, p.At(0x1000))
+	armor := smartmem.Read[int32](plan, p.At(0x1004))
+
+	for tick := range 3 {
+		game.I32(0x1000, int32(100-10*tick)) // the game changes memory
+		if err := plan.Exec(context.Background()); err != nil {
+			panic(err)
+		}
+		plan.View(func() {
+			h, _ := hp.Get()
+			a, _ := armor.Get()
+			fmt.Println(plan.Gen(), h, a)
+		})
+	}
+	// Output:
+	// 1 100 50
+	// 2 90 50
+	// 3 80 50
+}

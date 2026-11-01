@@ -14,6 +14,7 @@ type Future[T any] struct {
 	state atomic.Uint32 // 0: pending, 1: has a value
 	val   T
 	err   error
+	gen   uint64
 
 	// staged is the result of the current execution. In a Batch it is
 	// committed at once; a Plan commits all Futures together.
@@ -51,6 +52,55 @@ func (f *Future[T]) Get() (T, error) {
 		return zero, ErrPending
 	}
 	return f.val, f.err
+}
+
+// Gen returns the execution the current value comes from: for a Plan, the
+// Plan.Gen of the Exec that published it; for other scopes, 1 once ready.
+// It is 0 before the first value.
+func (f *Future[T]) Gen() uint64 {
+	if l := f.g.pub; l != nil {
+		l.RLock()
+		defer l.RUnlock()
+	}
+	if f.state.Load() == 0 {
+		return 0
+	}
+	return f.gen
+}
+
+// Next waits for a value newer than generation after and returns it with its
+// generation. With after = 0 it waits for the first value. It is meant for
+// Plans: a subscriber keeps the generation it saw and calls Next again.
+func (f *Future[T]) Next(ctx context.Context, after uint64) (T, uint64, error) {
+	for {
+		var ch <-chan struct{}
+		if p := f.g.plan; p != nil {
+			ch = p.updated() // taken before the check, so no publish is missed
+		} else {
+			ch = f.Done()
+		}
+		v, gen, err := f.snapshot()
+		if gen > after {
+			return v, gen, err
+		}
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			var zero T
+			return zero, after, ctx.Err()
+		}
+	}
+}
+
+func (f *Future[T]) snapshot() (v T, gen uint64, err error) {
+	if l := f.g.pub; l != nil {
+		l.RLock()
+		defer l.RUnlock()
+	}
+	if f.state.Load() == 0 {
+		return v, 0, nil
+	}
+	return f.val, f.gen, f.err
 }
 
 // Ready reports whether the value is ready.
@@ -110,6 +160,7 @@ func (f *Future[T]) commit() {
 		return
 	}
 	f.val, f.err = f.sv, f.serr
+	f.gen = max(f.g.gen, 1)
 	f.state.Store(1)
 	f.mu.Lock()
 	if !f.closed {

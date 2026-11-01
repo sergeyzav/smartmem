@@ -3,6 +3,8 @@ package smartmem
 import (
 	"context"
 	"sync"
+
+	"github.com/sergeyzav/smartmem/internal/engine"
 )
 
 // Batch is a one-shot set of requests: describe them, call Run once, then
@@ -43,7 +45,8 @@ func (b *Batch) prepare() *graph {
 
 func (b *Batch) finish() {}
 
-// Runnable is something Run can execute: a *Batch or a *Plan.
+// Runnable is something Run can execute: a *Batch or a *Plan. A Plan run
+// through Run is published like after Exec.
 type Runnable interface {
 	check() error    // without side effects
 	prepare() *graph // after every check passed
@@ -62,6 +65,13 @@ func Run(ctx context.Context, rs ...Runnable) error {
 			return err
 		}
 	}
+	for i := range rs {
+		for j := range i {
+			if rs[i] == rs[j] {
+				panic("smartmem: Run: the same scope is passed twice")
+			}
+		}
+	}
 	graphs := make([]*graph, 0, len(rs))
 	for _, x := range rs {
 		g := x.prepare()
@@ -70,12 +80,13 @@ func Run(ctx context.Context, rs ...Runnable) error {
 		}
 		graphs = append(graphs, g)
 	}
-	return execute(ctx, graphs, rs)
-}
-
-func execute(ctx context.Context, graphs []*graph, rs []Runnable) error {
 	s := graphs[0].s
 	r := s.getRun()
+	defer s.putRun(r)
+	return executeWith(ctx, r, graphs, rs)
+}
+
+func executeWith(ctx context.Context, r *engine.Run, graphs []*graph, rs []Runnable) error {
 	for _, g := range graphs {
 		g.begin(r)
 	}
@@ -83,7 +94,6 @@ func execute(ctx context.Context, graphs []*graph, rs []Runnable) error {
 	for _, g := range graphs {
 		g.end()
 	}
-	s.putRun(r)
 	for _, x := range rs {
 		x.finish()
 	}

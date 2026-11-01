@@ -1,6 +1,7 @@
 package smartmem
 
 import (
+	"bytes"
 	"context"
 	"unsafe"
 
@@ -138,6 +139,7 @@ func newStringLeaf(g *graph, kind StringKind, done func(string, error)) *engine.
 type stringSink struct {
 	kind StringKind
 	done func(string, error)
+	memo stringMemo
 }
 
 func (s *stringSink) Done(b []byte, err error) {
@@ -145,11 +147,33 @@ func (s *stringSink) Done(b []byte, err error) {
 		s.done("", err)
 		return
 	}
-	if s.kind.enc == encCString {
-		s.done(codec.DecodeCString(b, s.kind.truncate))
-	} else {
-		s.done(codec.DecodeUTF16(b, s.kind.truncate))
+	if !s.memo.hit(b) {
+		var v string
+		if s.kind.enc == encCString {
+			v, err = codec.DecodeCString(b, s.kind.truncate)
+		} else {
+			v, err = codec.DecodeUTF16(b, s.kind.truncate)
+		}
+		s.memo.store(b, v, err)
 	}
+	s.done(s.memo.s, s.memo.err)
+}
+
+// stringMemo keeps the last raw bytes and their decoded string, so a string
+// that did not change since the last execution is not decoded or allocated
+// again.
+type stringMemo struct {
+	raw []byte
+	s   string
+	err error
+	ok  bool
+}
+
+func (m *stringMemo) hit(b []byte) bool { return m.ok && bytes.Equal(b, m.raw) }
+
+func (m *stringMemo) store(b []byte, s string, err error) {
+	m.raw = append(m.raw[:0], b...)
+	m.s, m.err, m.ok = s, err, true
 }
 
 // unicodeSink reads a UNICODE_STRING header, then schedules its buffer.
@@ -158,6 +182,7 @@ type unicodeSink struct {
 	done   func(string, error)
 	header *engine.Node // the header leaf; the buffer read uses its pid and flags
 	buf    engine.Node
+	memo   stringMemo
 }
 
 func (s *unicodeSink) Done(b []byte, err error) {
@@ -184,7 +209,10 @@ func (s *unicodeBufSink) Done(b []byte, err error) {
 		s.done("", err)
 		return
 	}
-	s.done(codec.DecodeUTF16Exact(b), nil)
+	if !s.memo.hit(b) {
+		s.memo.store(b, codec.DecodeUTF16Exact(b), nil)
+	}
+	s.done(s.memo.s, nil)
 }
 
 // Write describes a write of v at loc. Writes run before reads in their round
