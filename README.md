@@ -102,6 +102,89 @@ items := smartmem.Then(count, func(s smartmem.Scope, n uint32) *smartmem.Future[
 })
 ```
 
+## Batch, Plan and Scheduler
+
+Requests are described in a scope, and the scope decides when they run. Requests that run together share rounds, so they cost one scatter operation per round between them.
+
+| | Batch | Plan | Scheduler |
+|---|---|---|---|
+| For | one-off reads and writes | polling the same values every tick | independent subsystems on different goroutines |
+| Runs | once, with `Run` | many times, with `Exec` | by itself, in short flush windows |
+| Describe from | one goroutine | one goroutine, before the first `Exec` | any goroutine, any time |
+| Read results | `Get` after `Run` | `View`, `Get`, `Next` after each `Exec` | `Wait` on the Future |
+| Writes | yes | no | yes |
+| Allocations | per run | none for fixed-size values, structs and unchanged strings | per request |
+
+### Batch: one-off
+
+```go
+b := s.NewBatch()
+count := smartmem.Read[int32](b, p.At(0x1000))
+rec   := smartmem.Load[Record](b, p.At(0x2000)) // Record: see Business structs
+done  := smartmem.Write(b, p.At(0x3000), uint32(1))
+if err := b.Run(ctx); err != nil { ... } // only ctx or a broken backend
+
+n, err := count.Get() // the error of this request, if any
+```
+
+A Batch runs once; a second `Run` returns `ErrBatchDone`. Writes go before the reads of their round. For a single value, `ReadNow` and `WriteNow` run a Batch of their own:
+
+```go
+v, err := smartmem.ReadNow[uint32](ctx, p.At(0x1000))
+```
+
+`smartmem.Run(ctx, b1, b2, plan)` runs several Batches and Plans together, so independent parts of a program that each built their own Batch still share rounds.
+
+### Plan: polling
+
+```go
+plan := s.NewPlan()
+count := smartmem.Read[int32](plan, p.At(0x1000))
+recs  := smartmem.LoadEach[Record](plan, p, smartmem.ReadSlice[smartmem.Ptr[Record]](plan, p.At(list), 64))
+
+for range ticker.C {
+    if err := plan.Exec(ctx); err != nil { ... }
+    plan.View(func() { // every value comes from the same Exec
+        n, _ := count.Get()
+        rs, _ := recs.Get()
+    })
+}
+```
+
+A Plan is described once and frozen by its first `Exec`; describing more requests afterwards panics. Nodes, buffers and decoded values are reused, so a Plan of fixed-size values, structs and unchanged strings runs without allocating; `ReadSlice`, `LoadEach` and `All` allocate one result slice per `Exec`. The results of one `Exec` are published together: values read inside `View` never mix two ticks. Another goroutine can follow a value with `Next`, without polling:
+
+```go
+v, gen, err := count.Next(ctx, lastGen) // waits for an Exec newer than lastGen
+```
+
+Plans do not support writes.
+
+### Scheduler: independent subsystems
+
+```go
+sch := smartmem.NewScheduler(s) // flush window 500µs by default
+defer sch.Close()
+
+// any goroutine, any time:
+v, err := smartmem.Read[uint32](sch, p.Chain(p.At(y), 0x10)).Wait(ctx)
+```
+
+Requests from different goroutines that arrive within the flush window (`FlushWindow`, or at once after `FlushMax` requests) run together and share rounds, although the goroutines know nothing about each other. Inside `Then`, describe new requests in the scope `Then` passes to the callback: they join the running flush instead of waiting for the next one.
+
+A Plan can be attached to a Scheduler to run on a timer inside its flushes, sharing rounds with whatever else is queued:
+
+```go
+sch.Attach(plan, 16*time.Millisecond) // read it with View, Get or Next; Exec panics
+```
+
+`Close` fails queued requests with `ErrClosed` and detaches the Plans.
+
+### Which one?
+
+- A value now, once: `ReadNow`. Several values at once: a **Batch**.
+- The same values again and again, from one loop: a **Plan**.
+- Many goroutines that read on their own schedule: a **Scheduler**, with polled sets as attached Plans.
+
 ## Business structs
 
 `Bind` says where each field lives. `Load` reads them in as few rounds as the pointers allow, and the Future gets the struct only when every field is in: nobody sees it half filled.
@@ -132,37 +215,6 @@ A live process cannot be snapshotted atomically. smartmem gives three concrete g
 1. **Atomic publish**: a struct is seen whole or as an error.
 2. **ALAP** (on by default): shorter chains are delayed so that all fields of a struct are read by the same, last scatter.
 3. **`Revalidate(n)`**: the chain pointers are re-read in that last round. If one changed, the object moved, and the struct is read again; after `n` retries it fails with `ErrUnstable`. This costs no extra round when nothing changed.
-
-## Polling with a Plan
-
-```go
-plan := s.NewPlan()
-count := smartmem.Read[int32](plan, p.At(0x1000))
-limit := smartmem.Read[int32](plan, p.At(0x1004))
-
-for range ticker.C {
-    if err := plan.Exec(ctx); err != nil { ... }
-    plan.View(func() { // values of the same Exec
-        n, _ := count.Get()
-        l, _ := limit.Get()
-    })
-}
-```
-
-A Plan of fixed-size values, structs and unchanged strings runs without allocating. `ReadSlice`, `LoadEach` and `All` allocate their result slice on each `Exec`. `Future.Next(ctx, gen)` waits for the next value without polling.
-
-## Concurrent subsystems
-
-```go
-sch := smartmem.NewScheduler(s) // flush window 500µs by default
-defer sch.Close()
-sch.Attach(plan, 16*time.Millisecond)
-
-// any goroutine:
-v, err := smartmem.Read[uint32](sch, p.Chain(p.At(y), 0x10)).Wait(ctx)
-```
-
-Requests from different goroutines that arrive within the flush window run together, sharing rounds with each other and with attached Plans that are due.
 
 ## Errors
 
