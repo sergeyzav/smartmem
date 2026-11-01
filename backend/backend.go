@@ -4,7 +4,10 @@
 // [github.com/sergeyzav/smartmem/backend/memprocfs] connects to MemProcFS,
 // and package [github.com/sergeyzav/smartmem/backend/fake] is an in-memory
 // process for tests. Implement [Backend] to read memory from another source,
-// such as a raw dump or a debugger.
+// such as a raw dump, /proc/<pid>/mem or a debugger. The examples below show
+// a complete backend; the guide at
+// https://github.com/sergeyzav/smartmem/blob/main/docs/custom-backend.md
+// walks through it.
 //
 // # Contract
 //
