@@ -121,8 +121,11 @@ func (c *chainReq) schedule(r *engine.Run) {
 }
 
 func (l Loc) base() (uint64, error) {
-	if l.kind == baseModule {
+	switch l.kind {
+	case baseModule:
 		return l.proc.moduleBase(l.module)
+	case baseCell:
+		return *l.cell, nil
 	}
 	return l.addr, nil
 }

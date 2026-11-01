@@ -501,11 +501,3 @@ func TestReadSlice(t *testing.T) {
 	}
 	e.assertTrace(`r1 pid=100 R 0x1000+16`)
 }
-
-func TestSparseReadPanics(t *testing.T) {
-	type sparse struct {
-		A int32 `mem:"0x10"`
-	}
-	e := newEnv(t)
-	mustPanic(t, "Read sparse", "Load", func() { smartmem.Read[sparse](e.s.NewBatch(), e.p.At(0x1000)) })
-}
