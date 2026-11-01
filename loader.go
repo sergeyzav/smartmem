@@ -11,10 +11,13 @@ import (
 )
 
 // ErrUnstable means a pointer of a loaded struct changed while it was read,
-// so the struct may mix two objects, and the retries set by Revalidate ran out.
+// so the struct may mix two objects, and the retries set by [Revalidate] ran
+// out.
 var ErrUnstable = errors.New("smartmem: pointer changed while reading")
 
-// FieldError is the error of a struct whose field could not be read.
+// FieldError is the error of a struct whose field could not be read. Loc is
+// the field's location as given in Bind; Err is the cause, for example a
+// [*NullPointerError] or a [*ReadError].
 type FieldError struct {
 	Loc Loc
 	Err error
@@ -24,18 +27,21 @@ func (e *FieldError) Error() string { return fmt.Sprintf("smartmem: field at %v:
 func (e *FieldError) Unwrap() error { return e.Err }
 
 // Binder is a Go struct that knows where its fields live in target memory.
-// Bind is called once, when the struct is registered with Load or LoadEach:
-// it describes the shape and must not depend on values read.
+// Bind receives the struct's base location and describes each field with
+// [Field], [FieldString] or [Sub], relative to base. It is called once, when
+// the struct is registered with [Load] or [LoadEach], not on every
+// execution: it describes the shape and must not depend on values read.
 type Binder interface {
 	Bind(l *Loader, base Loc)
 }
 
-// Loader collects the fields of one struct. Bind methods receive it.
+// Loader collects the fields of one struct while its Bind method runs. Pass
+// it to [Field], [FieldString] and [Sub]; do not keep it after Bind returns.
 type Loader struct {
 	st *loadState
 }
 
-// LoadOption configures Load and LoadEach.
+// LoadOption configures [Load] and [LoadEach].
 type LoadOption func(*loadOptions)
 
 type loadOptions struct {
@@ -56,18 +62,20 @@ func Revalidate(retries int) LoadOption {
 	return func(o *loadOptions) { o.revalidate = max(0, retries) }
 }
 
-// Strict makes LoadEach fail as a whole when any element fails. By default
+// Strict makes [LoadEach] fail as a whole when any element fails. By default
 // failed elements are left out.
 func Strict() LoadOption { return func(o *loadOptions) { o.strict = true } }
 
-// FieldOption configures a field.
+// FieldOption configures a field in [Field] or [FieldString].
 type FieldOption func(*fieldReq)
 
 // Optional lets the struct load when this field fails; the field is then zero.
 func Optional() FieldOption { return func(f *fieldReq) { f.optional = true } }
 
-// Field describes a field read: dst points into the struct being bound, and
-// T must be blittable.
+// Field binds *dst to a T read at loc. dst must point into the struct being
+// bound, usually a field of Bind's receiver, and T must be blittable; a
+// sparse T panics. The field is written only when the whole struct is
+// published.
 func Field[T any](l *Loader, dst *T, loc Loc, opts ...FieldOption) {
 	c := codec.MustOf[T]()
 	if c.Kind != codec.Blittable {
@@ -79,7 +87,9 @@ func Field[T any](l *Loader, dst *T, loc Loc, opts ...FieldOption) {
 	}, func() { var zero T; *dst = zero }, opts)
 }
 
-// FieldString describes a string field.
+// FieldString binds *dst to a string of the given kind read at loc, as
+// [ReadString] reads it. A [UnicodeString] field adds one round to the
+// struct.
 func FieldString(l *Loader, dst *string, loc Loc, kind StringKind, opts ...FieldOption) {
 	f := l.st.newField(loc, func() { *dst = "" }, opts)
 	f.head = l.st.g.newChain(loc, newStringLeaf(l.st.g, kind, func(s string, err error) {

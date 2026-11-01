@@ -41,7 +41,7 @@ func newFuture[T any](g *graph) *Future[T] {
 }
 
 // Get returns the value without blocking. Before the value is ready it
-// returns ErrPending.
+// returns [ErrPending].
 func (f *Future[T]) Get() (T, error) {
 	if l := f.g.pub; l != nil {
 		l.RLock()
@@ -218,8 +218,12 @@ func Map[T, U any](f *Future[T], fn func(T) (U, error)) *Future[U] {
 // Then runs a dependent request: when f is ready, fn describes new requests
 // in s, and their result becomes the result of Then. The new requests run in
 // the next round of the same execution. fn must return a Future it created in
-// s (Resolved and Failed included), or nil for the zero value. Like Map, fn runs between rounds and must not
-// block.
+// s ([Resolved] and [Failed] included), or nil for the zero value. Like
+// [Map], fn runs between rounds and must not block. If f fails, fn is not
+// called and Then fails with the same error.
+//
+// A recursive Then walks a linked list, one round per element; the length is
+// bounded by [WithMaxRounds].
 func Then[T, U any](f *Future[T], fn func(s Scope, v T) *Future[U]) *Future[U] {
 	out := newFuture[U](f.g)
 	f.subscribe(func(v T, err error, s Scope) {

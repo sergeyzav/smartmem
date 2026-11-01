@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// ErrClosed is the error of requests to a Scheduler that was closed before
+// ErrClosed is the error of requests to a [Scheduler] that was closed before
 // they ran.
 var ErrClosed = errors.New("smartmem: scheduler closed")
 
@@ -60,7 +60,8 @@ type attachedPlan struct {
 	next  time.Time
 }
 
-// NewScheduler starts a Scheduler. Close stops it.
+// NewScheduler starts a Scheduler and its goroutine. Call [Scheduler.Close]
+// when it is no longer needed.
 func NewScheduler(s *Session, opts ...SchedulerOption) *Scheduler {
 	sch := &Scheduler{
 		s:    s,

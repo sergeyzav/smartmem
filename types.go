@@ -1,6 +1,7 @@
 package smartmem
 
-// Addr is a raw 64-bit address in target memory.
+// Addr is a raw 64-bit address in target memory. Use it for pointer fields
+// whose target type does not matter, and [Ptr] when it does.
 type Addr uint64
 
 // Ptr is a 64-bit pointer to a T in target memory. It has the same layout as a
