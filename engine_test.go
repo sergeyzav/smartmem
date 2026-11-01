@@ -390,9 +390,9 @@ func TestL1_ChainTrace(t *testing.T) {
 	}
 }
 
-// L2: Cheat Engine semantics. Chain(B) is B; Chain(B, o) is [B]+o;
+// L2: Chain semantics. Chain(B) is B; Chain(B, o) is [B]+o;
 // Chain(B, o1, o2) is [[B]+o1]+o2.
-func TestL2_CheatEngineSemantics(t *testing.T) {
+func TestL2_ChainSemantics(t *testing.T) {
 	e := newEnv(t)
 	e.fp.U64(0x1000, 0x2000)
 	e.fp.U64(0x2030, 0x3000)
@@ -444,9 +444,9 @@ func TestL4_BadPointer(t *testing.T) {
 
 func TestModuleBase(t *testing.T) {
 	e := newEnv(t)
-	e.fp.Module("client.dll", 0x7ff600000000, 0x1000).U32(0x7ff600000010, 77)
+	e.fp.Module("core.dll", 0x7ff600000000, 0x1000).U32(0x7ff600000010, 77)
 	b := e.s.NewBatch()
-	ok := smartmem.Read[uint32](b, e.p.Module("client.dll").Add(0x10))
+	ok := smartmem.Read[uint32](b, e.p.Module("core.dll").Add(0x10))
 	missing := smartmem.Read[uint32](b, e.p.Module("missing.dll"))
 	e.run(b)
 	if get(t, ok) != 77 {

@@ -129,7 +129,7 @@ func (l Loc) Depth() (n int, static bool)        // number of Derefs; static=fal
 **Semantics (normative)**
 - `At(x).Deref().Add(o)` means: read a u64 at address `x`, get `y`, and the target address is `y+o`.
 - `Chain(B, o1, …, on)` ≡ `B.Deref().Add(o1).Deref().Add(o2)…Deref().Add(on)`.
-  This matches the Cheat Engine pointer notation `[[[B]+o1]+o2]…+on`: the base
+  This matches the bracket notation for pointer paths `[[[B]+o1]+o2]…+on`: the base
   **is dereferenced**, and `n` offsets give `n` dereferences. With `n=0` it is just `B`.
 - A `Read` at a `Loc` of depth `d` takes `d+1` rounds: `d` rounds for pointers and 1 for the leaf.
 - A pointer of 0 gives `*NullPointerError{Step: k}`, where `k` is the Deref number (from 0).
@@ -217,10 +217,10 @@ func WriteNow[T any](ctx context.Context, loc Loc, v T) error
 ### Batch — one-shot execution
 ```go
 b := s.NewBatch()
-hp  := smartmem.Read[int32](b, base.Deref().Add(0x100))
-pos := smartmem.Read[Vec3](b, p.Chain(base, 0x30, 0x90))
+count  := smartmem.Read[int32](b, base.Deref().Add(0x100))
+origin := smartmem.Read[Vec3](b, p.Chain(base, 0x30, 0x90))
 if err := b.Run(ctx); err != nil { /* fatal error */ }
-v, err := hp.Get()   // the error of this request
+v, err := count.Get() // the error of this request
 ```
 - `Run` can be called once. A second call returns `ErrBatchDone`.
 - `Run` returns an error only for fatal failures (ctx, backend). Errors of single
@@ -230,14 +230,14 @@ v, err := hp.Get()   // the error of this request
 ### Plan — repeated execution (polling)
 ```go
 plan := s.NewPlan()
-hp      := smartmem.Read[int32](plan, local.Add(0x100))
-players := smartmem.LoadEach[Player](plan, smartmem.ReadSlice[smartmem.Ptr[Player]](plan, list, 64))
+count   := smartmem.Read[int32](plan, root.Add(0x100))
+records := smartmem.LoadEach[Record](plan, smartmem.ReadSlice[smartmem.Ptr[Record]](plan, list, 64))
 
 for range ticker.C {
     if err := plan.Exec(ctx); err != nil { ... }
     plan.View(func() {           // consistent read of the values of one Exec
-        v, _ := hp.Get()
-        ps, _ := players.Get()
+        v, _ := count.Get()
+        rs, _ := records.Get()
     })
 }
 ```
@@ -330,18 +330,18 @@ a pool, and each execution has its own. Describing a `Batch`/`Plan` is single-th
 ```go
 type Binder interface{ Bind(l *Loader, base Loc) }
 
-type Player struct {
-    HP   int32
-    Team uint8
-    Pos  Vec3
-    Name string
+type Record struct {
+    ID     int32
+    Class  uint8
+    Origin Vec3
+    Name   string
 }
 
-func (p *Player) Bind(l *smartmem.Loader, base smartmem.Loc) {
-    smartmem.Field(l, &p.HP,   base.Add(0x100))
-    smartmem.Field(l, &p.Team, base.Add(0x13C))                          // merges with HP
-    smartmem.Field(l, &p.Pos,  base.Add(0x30).Deref().Add(0x90))
-    smartmem.FieldString(l, &p.Name, base.Add(0x50).Deref(), smartmem.CString(32))
+func (r *Record) Bind(l *smartmem.Loader, base smartmem.Loc) {
+    smartmem.Field(l, &r.ID,     base.Add(0x100))
+    smartmem.Field(l, &r.Class,  base.Add(0x13C))                        // merges with ID
+    smartmem.Field(l, &r.Origin, base.Add(0x30).Deref().Add(0x90))
+    smartmem.FieldString(l, &r.Name, base.Add(0x50).Deref(), smartmem.CString(32))
 }
 
 func Load[T any, PT interface{ *T; Binder }](s Scope, base Loc, opts ...LoadOption) *Future[T]
@@ -350,7 +350,7 @@ func Field[T any](l *Loader, dst *T, loc Loc, opts ...FieldOption)
 func FieldString(l *Loader, dst *string, loc Loc, kind StringKind, opts ...FieldOption)
 func Sub[T any, PT interface{ *T; Binder }](l *Loader, dst *T, base Loc) // nested Binder
 
-p1 := smartmem.Load[Player](b, entity)          // PT is inferred
+r := smartmem.Load[Record](b, base)             // PT is inferred
 ```
 
 - `Bind` is called **once** at registration (for `LoadEach`, once per element slot).
@@ -470,7 +470,7 @@ The fake backend implements it with a module table.
 ```go
 mem := fake.New()
 p := mem.Proc(100)                          // an x64 process
-p.Module("client.dll", 0x7FF6_0000_0000, 0x10000)
+p.Module("core.dll", 0x7FF6_0000_0000, 0x10000)
 p.U64(0x1000, 0x5000)                       // a pointer
 p.I32(0x5010, 42)
 p.Bytes(0x6000, []byte("hello\x00"))
@@ -523,7 +523,7 @@ This way the concept is visible right in the test, and no separate golden files 
 | ID | What it checks |
 |---|---|
 | L1 | `Chain(B, o1, o2)` gives the same trace as `B.Deref().Add(o1).Deref().Add(o2)` |
-| L2 | CE semantics on the fake with hand-placed pointers: `Chain(B)` = `B`; `Chain(B, o)` = `[B]+o` |
+| L2 | `Chain` semantics on the fake with hand-placed pointers: `Chain(B)` = `B`; `Chain(B, o)` = `[B]+o` |
 | L3 | zero at step k → `NullPointerError{Step: k}`, and the trace shows that the steps after k **were not read** |
 | L4 | a non-canonical / kernel pointer → `BadPointerError` |
 | L5 | immutability: `a := b.Add(1); x := a.Deref(); y := a.Add(2)` — `x` and `y` do not affect each other (the classic bug of a shared backing array on append) |
@@ -567,7 +567,7 @@ This way the concept is visible right in the test, and no separate golden files 
 | B1 | **atomic publish**: in `OnRound` after round 1, `Get()` gives `ErrPending`, although some fields are already read |
 | B2 | a field error → `FieldError` with the `Loc`; an `Optional` field → zero, the struct is published |
 | B3 | fail-fast: after an error the remaining fields are not read (trace) |
-| B4 | **ALAP**: the `Player` example from A.6 gives exactly the trace from the right column of the table; `WithALAP(false)` the one from the left; the number of rounds is the same |
+| B4 | **ALAP**: the `Record` example from A.6 gives exactly the trace from the right column of the table; `WithALAP(false)` the one from the left; the number of rounds is the same |
 | B5 | ALAP with a dynamic base (`LoadEach` after `ReadSlice`): the leaves are in round `r0 + D` |
 | B6 | **revalidation**: `OnRound` repoints a pointer between rounds → retry, the value comes from the new object; a change every round → `ErrUnstable` after N attempts |
 | B7 | revalidation without changes: zero extra rounds, the checks are merged into existing spans (trace) |
@@ -941,11 +941,11 @@ A Plan attached to a `Scheduler` cannot be run by hand (panic).
 ## A.6 Loader: ALAP and revalidation by example
 
 ```go
-func (p *Player) Bind(l *smartmem.Loader, base smartmem.Loc) {
-    smartmem.Field(l, &p.HP,   base.Add(0x100))                         // d=0
-    smartmem.Field(l, &p.Team, base.Add(0x13C))                         // d=0
-    smartmem.Field(l, &p.Pos,  base.Add(0x30).Deref().Add(0x90))        // d=1
-    smartmem.FieldString(l, &p.Name, base.Add(0x50).Deref(), smartmem.CString(32)) // d=1
+func (r *Record) Bind(l *smartmem.Loader, base smartmem.Loc) {
+    smartmem.Field(l, &r.ID,     base.Add(0x100))                       // d=0
+    smartmem.Field(l, &r.Class,  base.Add(0x13C))                       // d=0
+    smartmem.Field(l, &r.Origin, base.Add(0x30).Deref().Add(0x90))      // d=1
+    smartmem.FieldString(l, &r.Name, base.Add(0x50).Deref(), smartmem.CString(32)) // d=1
 }
 ```
 
@@ -953,8 +953,8 @@ func (p *Player) Bind(l *smartmem.Loader, base smartmem.Loc) {
 
 | Round | Without ALAP | With ALAP |
 |---|---|---|
-| 1 | HP+Team (1 span), `[base+0x30]`, `[base+0x50]` | `[base+0x30]`, `[base+0x50]` (1 span) |
-| 2 | Pos, Name | **HP+Team, Pos, Name** — all leaves from one scatter |
+| 1 | ID+Class (1 span), `[base+0x30]`, `[base+0x50]` | `[base+0x30]`, `[base+0x50]` (1 span) |
+| 2 | Origin, Name | **ID+Class, Origin, Name** — all leaves from one scatter |
 
 The number of rounds is the same (2), but with ALAP HP and Pos are read at the same moment.
 

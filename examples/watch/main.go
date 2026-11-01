@@ -1,13 +1,13 @@
 // Command watch polls values behind pointer chains and prints them when they
-// change, like an address list in Cheat Engine:
+// change, like a debugger's watch window:
 //
-//	go run ./examples/watch -proc game.exe \
-//	    -w 'hp=game.dll+0x1A2B30,0x30,0x90:i32' \
-//	    -w 'pos.x=game.dll+0x1A2B30,0x30,0x40:f32'
+//	go run ./examples/watch -proc app.exe \
+//	    -w 'count=core.dll+0x1A2B30,0x30,0x90:i32' \
+//	    -w 'origin.x=core.dll+0x1A2B30,0x30,0x40:f32'
 //
 // A watch is name=base[,offset...]:type. The base is module+offset or an
-// address, and the offsets follow Cheat Engine: game.dll+0x10,0x30,0x90 is
-// [[game.dll+0x10]+0x30]+0x90.
+// address, and each offset is one dereference, as in Process.Chain:
+// core.dll+0x10,0x30,0x90 is [[core.dll+0x10]+0x30]+0x90.
 //
 // All watches are one Plan: described once, then run every tick in as many
 // rounds as the longest chain, with every value read in the same last round.

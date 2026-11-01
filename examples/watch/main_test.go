@@ -15,7 +15,7 @@ const modBase = 0x7ff600000000
 func setup(t *testing.T) (*fake.Proc, *smartmem.Session, *smartmem.Process) {
 	t.Helper()
 	mem := fake.New()
-	p := mem.Proc(100).Module("game.dll", modBase, 0x10000)
+	p := mem.Proc(100).Module("core.dll", modBase, 0x10000)
 	p.U64(modBase+0x100, 0x20000).
 		U64(0x20030, 0x30000).
 		I32(0x30090, 100).
@@ -32,17 +32,17 @@ func setup(t *testing.T) (*fake.Proc, *smartmem.Session, *smartmem.Process) {
 func TestParse(t *testing.T) {
 	_, _, p := setup(t)
 	for spec, want := range map[string]string{
-		"hp=game.dll+0x100,0x30,0x90:i32": "[[game.dll+0x100]+0x30]+0x90",
-		"x=game.dll+0x100:ptr":            "game.dll+0x100",
-		"n=0x40000:str":                   "0x40000",
-		"neg=0x40000,-0x10:u8":            "[0x40000]-0x10",
+		"count=core.dll+0x100,0x30,0x90:i32": "[[core.dll+0x100]+0x30]+0x90",
+		"x=core.dll+0x100:ptr":               "core.dll+0x100",
+		"n=0x40000:str":                      "0x40000",
+		"neg=0x40000,-0x10:u8":               "[0x40000]-0x10",
 	} {
 		_, loc, _, err := parse(p, spec)
 		if err != nil || loc.String() != want {
 			t.Errorf("%s: got %s, %v; want %s", spec, loc, err, want)
 		}
 	}
-	for _, bad := range []string{"hp", "hp=game.dll+0x100", "hp=game.dll+zz:i32", "hp=0x10,0xq:i32"} {
+	for _, bad := range []string{"count", "count=core.dll+0x100", "count=core.dll+zz:i32", "count=0x10,0xq:i32"} {
 		if _, _, _, err := parse(p, bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
@@ -52,8 +52,8 @@ func TestParse(t *testing.T) {
 func TestPollPrintsChanges(t *testing.T) {
 	mem, s, p := setup(t)
 	w, err := newWatcher(s, p, []string{
-		"hp=game.dll+0x100,0x30,0x90:i32",
-		"x=game.dll+0x100,0x30,0x40:f32",
+		"count=core.dll+0x100,0x30,0x90:i32",
+		"x=core.dll+0x100,0x30,0x40:f32",
 		"name=0x40000:str",
 	})
 	if err != nil {
@@ -71,19 +71,19 @@ func TestPollPrintsChanges(t *testing.T) {
 		}
 	}
 
-	poll(`hp = 100`, `x = 1.5`, `name = "neo"`)
+	poll(`count = 100`, `x = 1.5`, `name = "neo"`)
 	poll()
 	mem.I32(0x30090, 90)
-	poll(`hp = 90`)
+	poll(`count = 90`)
 	mem.U64(0x20030, 0)
-	poll(`hp = error: smartmem: null pointer at deref 1`, `x = error: smartmem: null pointer at deref 1`)
+	poll(`count = error: smartmem: null pointer at deref 1`, `x = error: smartmem: null pointer at deref 1`)
 	mem.U64(0x20030, 0x30000)
-	poll(`hp = 90`, `x = 1.5`)
+	poll(`count = 90`, `x = 1.5`)
 }
 
 func TestUnknownType(t *testing.T) {
 	_, s, p := setup(t)
-	if _, err := newWatcher(s, p, []string{"hp=0x1000:i128"}); err == nil {
+	if _, err := newWatcher(s, p, []string{"count=0x1000:i128"}); err == nil {
 		t.Fatal("no error")
 	}
 }

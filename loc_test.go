@@ -77,11 +77,11 @@ func TestL5_Immutable(t *testing.T) {
 func TestLocString(t *testing.T) {
 	p := newProc(t)
 	cases := map[string]smartmem.Loc{
-		"client.dll+0x1a2b30":           p.Module("client.dll").Add(0x1A2B30),
-		"[[client.dll+0x10]+0x30]+0x90": p.Chain(p.Module("client.dll").Add(0x10), 0x30, 0x90),
-		"0x1000-0x10":                   p.At(0x1000).Add(-0x10),
-		"0x1000+0x80":                   p.At(0x1000).Index(2, 0x40),
-		"<zero Loc>":                    {},
+		"core.dll+0x1a2b30":           p.Module("core.dll").Add(0x1A2B30),
+		"[[core.dll+0x10]+0x30]+0x90": p.Chain(p.Module("core.dll").Add(0x10), 0x30, 0x90),
+		"0x1000-0x10":                 p.At(0x1000).Add(-0x10),
+		"0x1000+0x80":                 p.At(0x1000).Index(2, 0x40),
+		"<zero Loc>":                  {},
 	}
 	for want, l := range cases {
 		if got := l.String(); got != want {
