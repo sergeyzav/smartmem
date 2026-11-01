@@ -117,8 +117,10 @@
 // Package [github.com/sergeyzav/smartmem/backend/memprocfs] connects to
 // MemProcFS. Package [github.com/sergeyzav/smartmem/backend/fake] is an
 // in-memory process for tests: it runs on any OS without native libraries,
-// and its trace shows what was read in each round. Other sources of memory
-// implement [backend.Backend].
+// and its trace shows what was read in each round. Other sources of memory,
+// such as a dump file or /proc/<pid>/mem, implement [backend.Backend]; the
+// guide at https://github.com/sergeyzav/smartmem/blob/main/docs/custom-backend.md
+// builds one step by step.
 //
 // # Limits
 //

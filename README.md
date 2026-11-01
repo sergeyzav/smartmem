@@ -21,12 +21,13 @@ Experimental. The API may change until v1.0. The API reference with runnable exa
 - **Plans** for polling: describe once, `Exec` every tick, with no allocations.
 - **Scheduler**: subsystems on different goroutines share rounds without knowing about each other.
 - **Fake backend** for tests: no dump, no native libraries, any OS.
+- **Any memory source**: MemProcFS is one backend; a dump file, `/proc/<pid>/mem` or your own API is another. See [Custom memory access](docs/custom-backend.md).
 
 ## Requirements
 
 - Go 1.25+
 - 64-bit little-endian host (amd64, arm64, …). x64 target processes only (WoW64 is not supported yet).
-- The MemProcFS native libraries, only for `backend/memprocfs`. See the [gomemprocfs requirements](https://github.com/sergeyzav/gomemprocfs#requirements). The core package and its tests run without them.
+- The MemProcFS native libraries, only for `backend/memprocfs`. See the [gomemprocfs requirements](https://github.com/sergeyzav/gomemprocfs#requirements). The core package and its tests run without them, and so does your own backend: see [Custom memory access](docs/custom-backend.md).
 
 ## Install
 
@@ -197,6 +198,12 @@ m, err := smartmem.ReadNow[int32](ctx, p.At(0x10010))
 
 mem.Trace() // what was read, round by round: "r1 pid=4242 R 0x10010+4"
 ```
+
+## Custom memory access
+
+smartmem reaches memory through one interface, `backend.Backend`, with a single method `Exec`. Implement it to read a memory dump, a live Linux process through `/proc/<pid>/mem`, `ReadProcessMemory`, a debugger or a remote agent, and keep everything else: pointer chains, rounds, Plans, the Scheduler and `Load`. The optional `ProcessInfo` interface adds `ProcessByName` and `Process.Module`.
+
+The guide [docs/custom-backend.md](docs/custom-backend.md) builds a complete backend step by step and lists the contract: what smartmem guarantees to your backend and how your errors reach the requests.
 
 ## Development
 
