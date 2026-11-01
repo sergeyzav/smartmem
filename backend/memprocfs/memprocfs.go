@@ -135,6 +135,7 @@ func (b *Backend) Info(pid uint32) (backend.ProcInfo, error) {
 		PID:   pid,
 		X64:   pi.MemoryModel == gm.MemoryModelX64,
 		Wow64: pi.Win.IsWow64 != 0,
+		PEB:   pi.Win.PEB,
 	}, nil
 }
 

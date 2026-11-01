@@ -15,14 +15,16 @@ type options struct {
 }
 
 func defaultOptions() options {
-	return options{flags: FlagNoCache, maxRounds: 16, maxGap: 64, maxStringLen: 4096}
+	return options{flags: FlagNoCache, maxRounds: 4096, maxGap: 64, maxStringLen: 4096}
 }
 
 // WithFlags sets the MemProcFS read flags. The default is FlagNoCache.
 func WithFlags(flags uint64) Option { return func(o *options) { o.flags = flags } }
 
 // WithMaxRounds sets how many rounds one execution may take. Requests still
-// pending after that fail with ErrMaxRounds. The default is 16.
+// pending after that fail with ErrMaxRounds. The default is 4096: enough to
+// walk a linked list of a few thousand elements, one round each, while a
+// cyclic list still ends with an error.
 func WithMaxRounds(n int) Option { return func(o *options) { o.maxRounds = max(1, n) } }
 
 // WithMaxGap sets the largest gap, in bytes, between two reads on the same

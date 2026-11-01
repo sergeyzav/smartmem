@@ -6,5 +6,5 @@
 // subsystems share a round, and dependent requests (pointer chains) move to
 // the next one.
 //
-// The package is under construction; see DESIGN.md for the v1 design.
+// The package is under construction; see docs/DESIGN.md for the v1 design.
 package smartmem

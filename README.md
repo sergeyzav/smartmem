@@ -9,12 +9,12 @@ Built on top of [gomemprocfs](https://github.com/sergeyzav/gomemprocfs).
 
 ## Status
 
-Experimental. The API may change until v1.0. The design is in [DESIGN.md](DESIGN.md).
+Experimental. The API may change until v1.0. The design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Features
 
 - **Typed reads and writes**: Go numbers, arrays and C-layout structs, `Ptr[T]`, C strings, UTF-16 and `UNICODE_STRING`. No `[]byte` juggling.
-- **Pointer chains** in Cheat Engine notation: `p.Chain(base, 0x30, 0x90)` is `[[base]+0x30]+0x90`.
+- **Pointer chains** in bracket notation: `p.Chain(base, 0x30, 0x90)` is `[[base]+0x30]+0x90`.
 - **Rounds**: requests are described lazily and run in rounds. Each round is one scatter operation per process. Independent requests share a round; each pointer step moves a request to the next round.
 - **Business structs**: `Load` assembles a Go struct from fields spread over memory and publishes it only when every field is in.
 - **Plans** for polling: describe once, `Exec` every tick, with no allocations.
@@ -49,19 +49,19 @@ be := memprocfs.New(vmm)
 defer be.Close()
 
 s := smartmem.New(be)
-p, err := s.ProcessByName("game.exe")
+p, err := s.ProcessByName("app.exe")
 
 type Vec3 struct{ X, Y, Z float32 }
 
 b := s.NewBatch()
-hp  := smartmem.Read[int32](b, p.Module("game.dll").Add(0x1A2B30))
-pos := smartmem.Read[Vec3](b, p.Chain(p.Module("game.dll").Add(0x100), 0x30, 0x90))
+count  := smartmem.Read[int32](b, p.Module("core.dll").Add(0x1A2B30))
+origin := smartmem.Read[Vec3](b, p.Chain(p.Module("core.dll").Add(0x100), 0x30, 0x90))
 if err := b.Run(ctx); err != nil { ... } // only fatal errors: ctx, backend
 
-v, err := hp.Get() // errors of single requests live in their Futures
+v, err := count.Get() // errors of single requests live in their Futures
 ```
 
-`hp` and `pos` share round 1, which reads `hp` and the first pointer of `pos`. `pos` then takes two more rounds, one per pointer.
+`count` and `origin` share round 1, which reads `count` and the first pointer of `origin`. `origin` then takes two more rounds, one per pointer.
 
 ## Concepts
 
@@ -72,7 +72,7 @@ A `Loc` describes how to reach an address. It does no I/O.
 | Code | Means |
 |---|---|
 | `p.At(0x1000)` | the address 0x1000 |
-| `p.Module("game.dll").Add(0x10)` | module base + 0x10 (resolved once, cached) |
+| `p.Module("core.dll").Add(0x10)` | module base + 0x10 (resolved once, cached) |
 | `loc.Deref()` | the pointer stored at `loc` |
 | `p.Chain(B, o1, o2)` | `[[B]+o1]+o2` = `B.Deref().Add(o1).Deref().Add(o2)` |
 
@@ -91,7 +91,7 @@ Within a round, reads on the same page are merged and deduplicated, and writes g
 
 ### Futures
 
-`Read` returns a `*Future[T]`. `Get` never blocks; `Wait(ctx)` and `Done()` work across goroutines. Compose with `Map`, `Then` (a dependent request in the next round) and `All`.
+`Read` returns a `*Future[T]`. `Get` never blocks; `Wait(ctx)` and `Done()` work across goroutines. Compose with `Map`, `Then` (a dependent request in the next round) and `All`; `Resolved` and `Failed` end a `Then` with a computed value or an error.
 
 ```go
 count := smartmem.Read[uint32](b, p.At(listAddr))
@@ -105,20 +105,20 @@ items := smartmem.Then(count, func(s smartmem.Scope, n uint32) *smartmem.Future[
 `Bind` says where each field lives. `Load` reads them in as few rounds as the pointers allow, and the Future gets the struct only when every field is in: nobody sees it half filled.
 
 ```go
-type Monster struct {
-    HP   int32
-    Name string
-    Pos  Vec3
+type Record struct {
+    ID     int32
+    Name   string
+    Origin Vec3
 }
 
-func (m *Monster) Bind(l *smartmem.Loader, base smartmem.Loc) {
-    smartmem.Field(l, &m.HP, base.Add(0x10))
-    smartmem.FieldString(l, &m.Name, base.Add(0x18).Deref(), smartmem.CString(16))
-    smartmem.Field(l, &m.Pos, base.Add(0x20).Deref().Add(0x40))
+func (r *Record) Bind(l *smartmem.Loader, base smartmem.Loc) {
+    smartmem.Field(l, &r.ID, base.Add(0x10))
+    smartmem.FieldString(l, &r.Name, base.Add(0x18).Deref(), smartmem.CString(16))
+    smartmem.Field(l, &r.Origin, base.Add(0x20).Deref().Add(0x40))
 }
 
-monster := smartmem.Load[Monster](b, p.At(addr))
-monsters := smartmem.LoadEach[Monster](b, p, smartmem.ReadSlice[smartmem.Ptr[Monster]](b, p.At(list), 64))
+rec  := smartmem.Load[Record](b, p.At(addr))
+recs := smartmem.LoadEach[Record](b, p, smartmem.ReadSlice[smartmem.Ptr[Record]](b, p.At(list), 64))
 ```
 
 Structs that mirror C exactly can be read in one range with `Read[T]`. Use explicit `_ [N]byte` padding, `CBool` instead of `bool`, and sized integers instead of `int`. A struct with `mem:"0x48"` tags is read field by field.
@@ -135,14 +135,14 @@ A live process cannot be snapshotted atomically. smartmem gives three concrete g
 
 ```go
 plan := s.NewPlan()
-hp    := smartmem.Read[int32](plan, p.At(0x1000))
-armor := smartmem.Read[int32](plan, p.At(0x1004))
+count := smartmem.Read[int32](plan, p.At(0x1000))
+limit := smartmem.Read[int32](plan, p.At(0x1004))
 
 for range ticker.C {
     if err := plan.Exec(ctx); err != nil { ... }
     plan.View(func() { // values of the same Exec
-        h, _ := hp.Get()
-        a, _ := armor.Get()
+        n, _ := count.Get()
+        l, _ := limit.Get()
     })
 }
 ```
@@ -188,7 +188,7 @@ All work with `errors.Is` and `errors.As`.
 mem := fake.New()
 mem.Proc(4242).
     I32(0x10010, 250).
-    U64(0x10018, 0x20000).Bytes(0x20000, []byte("Grue\x00"))
+    U64(0x10018, 0x20000).Bytes(0x20000, []byte("alpha\x00"))
 
 s := smartmem.New(mem)
 p, _ := s.Process(4242)

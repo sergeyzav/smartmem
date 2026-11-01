@@ -48,7 +48,7 @@ type Field struct {
 // TypeError reports a type that cannot mirror C memory.
 type TypeError struct {
 	Type   reflect.Type
-	Path   string // field path inside Type, for example "Pos.X"; empty for Type itself
+	Path   string // field path inside Type, for example "Origin.X"; empty for Type itself
 	Reason string
 }
 

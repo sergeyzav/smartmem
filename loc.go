@@ -19,7 +19,7 @@ const (
 // a new Loc.
 //
 // Semantics: p.At(x).Deref().Add(o) reads the pointer y stored at x, and the
-// location is y+o. Process.Chain follows the Cheat Engine pointer notation.
+// location is y+o. Process.Chain follows the bracket notation [[B]+o1]+o2.
 //
 // The zero Loc is invalid; build one with Process.At or Process.Module.
 type Loc struct {
@@ -44,7 +44,7 @@ func (p *Process) Module(name string) Loc {
 	return Loc{proc: p, kind: baseModule, module: name, offs: []int64{0}}
 }
 
-// Chain follows the Cheat Engine pointer notation: Chain(B, o1, ..., on) is
+// Chain follows the bracket notation for pointer paths: Chain(B, o1, ..., on) is
 // [[[B]+o1]+o2]...+on, that is B.Deref().Add(o1)...Deref().Add(on). The base
 // is dereferenced, and n offsets mean n Derefs; Chain(B) is B itself.
 func (p *Process) Chain(base Loc, offs ...int64) Loc {
@@ -92,8 +92,8 @@ func (l Loc) Process() *Process { return l.proc }
 // IsZero reports whether l is the zero Loc.
 func (l Loc) IsZero() bool { return l.proc == nil }
 
-// String formats the location in Cheat Engine notation, for example
-// "[[client.dll+0x10]+0x30]+0x90".
+// String formats the location in the bracket notation of Chain, for example
+// "[[core.dll+0x10]+0x30]+0x90".
 func (l Loc) String() string {
 	if l.IsZero() {
 		return "<zero Loc>"

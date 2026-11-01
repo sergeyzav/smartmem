@@ -145,6 +145,34 @@ func TestE7_MaxRounds(t *testing.T) {
 	}
 }
 
+// E7b: the default limit lets a long linked list finish, one round per element.
+func TestE7b_DefaultMaxRoundsFitsLongList(t *testing.T) {
+	const n = 1000
+	e := newEnv(t)
+	for i := range uint64(n) {
+		next := 0x100000 + (i+1)*0x10
+		if i == n-1 {
+			next = 0
+		}
+		e.fp.U64(0x100000+i*0x10, next)
+	}
+	b := e.s.NewBatch()
+	var walk func(s smartmem.Scope, addr uint64, count int) *smartmem.Future[int]
+	walk = func(s smartmem.Scope, addr uint64, count int) *smartmem.Future[int] {
+		return smartmem.Then(smartmem.Read[uint64](s, e.p.At(addr)), func(s smartmem.Scope, next uint64) *smartmem.Future[int] {
+			if next == 0 {
+				return smartmem.Resolved(s, count+1)
+			}
+			return walk(s, next, count+1)
+		})
+	}
+	f := walk(b, 0x100000, 0)
+	e.run(b)
+	if got := get(t, f); got != n {
+		t.Fatalf("walked %d elements, want %d", got, n)
+	}
+}
+
 var errBoom = errors.New("boom")
 
 // failingBackend fails every Exec of one round.
@@ -362,9 +390,9 @@ func TestL1_ChainTrace(t *testing.T) {
 	}
 }
 
-// L2: Cheat Engine semantics. Chain(B) is B; Chain(B, o) is [B]+o;
+// L2: Chain semantics. Chain(B) is B; Chain(B, o) is [B]+o;
 // Chain(B, o1, o2) is [[B]+o1]+o2.
-func TestL2_CheatEngineSemantics(t *testing.T) {
+func TestL2_ChainSemantics(t *testing.T) {
 	e := newEnv(t)
 	e.fp.U64(0x1000, 0x2000)
 	e.fp.U64(0x2030, 0x3000)
@@ -416,9 +444,9 @@ func TestL4_BadPointer(t *testing.T) {
 
 func TestModuleBase(t *testing.T) {
 	e := newEnv(t)
-	e.fp.Module("client.dll", 0x7ff600000000, 0x1000).U32(0x7ff600000010, 77)
+	e.fp.Module("core.dll", 0x7ff600000000, 0x1000).U32(0x7ff600000010, 77)
 	b := e.s.NewBatch()
-	ok := smartmem.Read[uint32](b, e.p.Module("client.dll").Add(0x10))
+	ok := smartmem.Read[uint32](b, e.p.Module("core.dll").Add(0x10))
 	missing := smartmem.Read[uint32](b, e.p.Module("missing.dll"))
 	e.run(b)
 	if get(t, ok) != 77 {

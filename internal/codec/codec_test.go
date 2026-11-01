@@ -211,10 +211,10 @@ func TestC5_CSize(t *testing.T) {
 	}
 }
 
-type entity struct {
-	Health int32 `mem:"0x100"`
-	Team   uint8 `mem:"0x13C"`
-	Pos    Vec3  `mem:"48"`
+type record struct {
+	ID     int32 `mem:"0x100"`
+	Class  uint8 `mem:"0x13C"`
+	Origin Vec3  `mem:"48"`
 	Cached int64 `mem:"-"`
 	_      [8]byte
 }
@@ -233,19 +233,19 @@ type (
 	sparseOnlySkips struct {
 		A int32 `mem:"-"`
 	}
-	sparseNested struct{ E entity }
+	sparseNested struct{ E record }
 )
 
 // Sparse structs: tagged fields are read on their own; the Go layout does not matter.
 func TestSparse(t *testing.T) {
-	c, err := codec.Of[entity]()
+	c, err := codec.Of[record]()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Kind != codec.Sparse || len(c.Fields) != 3 {
 		t.Fatalf("kind %d, %d fields; want sparse with 3 fields", c.Kind, len(c.Fields))
 	}
-	wantOffsets := map[string]uint64{"Health": 0x100, "Team": 0x13c, "Pos": 48}
+	wantOffsets := map[string]uint64{"ID": 0x100, "Class": 0x13c, "Origin": 48}
 	for _, f := range c.Fields {
 		if f.MemOffset != wantOffsets[f.Name] {
 			t.Errorf("%s: mem offset %#x, want %#x", f.Name, f.MemOffset, wantOffsets[f.Name])
@@ -255,11 +255,11 @@ func TestSparse(t *testing.T) {
 		t.Errorf("MemSpan = %#x, want 0x13d", got)
 	}
 
-	var e entity
+	var e record
 	c.Fields[0].Decode(unsafe.Pointer(&e), []byte{100, 0, 0, 0})
 	c.Fields[2].Decode(unsafe.Pointer(&e), make([]byte, 12))
-	if e.Health != 100 {
-		t.Errorf("Health = %d after field decode, want 100", e.Health)
+	if e.ID != 100 {
+		t.Errorf("ID = %d after field decode, want 100", e.ID)
 	}
 
 	bad := []struct {
@@ -288,6 +288,6 @@ func TestDecodeOnSparsePanics(t *testing.T) {
 			t.Fatal("Decode on a sparse type did not panic")
 		}
 	}()
-	var e entity
-	codec.MustOf[entity]().Decode(unsafe.Pointer(&e), make([]byte, 64))
+	var e record
+	codec.MustOf[record]().Decode(unsafe.Pointer(&e), make([]byte, 64))
 }

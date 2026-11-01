@@ -46,6 +46,7 @@ func (s *Session) putRun(r *engine.Run) { s.runs.Put(r) }
 // are supported: others return ErrUnsupported. If the backend cannot describe
 // processes, the process is assumed to be x64.
 func (s *Session) Process(pid uint32) (*Process, error) {
+	var peb uint64
 	if s.info != nil {
 		pi, err := s.info.Info(pid)
 		if err != nil {
@@ -54,8 +55,9 @@ func (s *Session) Process(pid uint32) (*Process, error) {
 		if !pi.X64 || pi.Wow64 {
 			return nil, fmt.Errorf("smartmem: process %d is not a native x64 process: %w", pid, ErrUnsupported)
 		}
+		peb = pi.PEB
 	}
-	return &Process{s: s, pid: pid, ptrSize: 8, modules: make(map[string]uint64)}, nil
+	return &Process{s: s, pid: pid, ptrSize: 8, peb: peb, modules: make(map[string]uint64)}, nil
 }
 
 // ProcessByName finds a process by name and returns it as Process does.
@@ -76,6 +78,7 @@ type Process struct {
 	s       *Session
 	pid     uint32
 	ptrSize int
+	peb     uint64
 
 	mu      sync.RWMutex
 	modules map[string]uint64 // lower-case name -> base
@@ -86,6 +89,15 @@ func (p *Process) PID() uint32 { return p.pid }
 
 // PtrSize returns the pointer size in bytes. It is always 8 in v1.
 func (p *Process) PtrSize() int { return p.ptrSize }
+
+// PEB returns the location of the process environment block. It fails with
+// ErrUnsupported if the backend does not report it.
+func (p *Process) PEB() (Loc, error) {
+	if p.peb == 0 {
+		return Loc{}, fmt.Errorf("smartmem: process %d: PEB address unknown: %w", p.pid, ErrUnsupported)
+	}
+	return p.At(p.peb), nil
+}
 
 // Refresh drops cached module bases, for example after a module was reloaded.
 func (p *Process) Refresh() {

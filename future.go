@@ -218,7 +218,7 @@ func Map[T, U any](f *Future[T], fn func(T) (U, error)) *Future[U] {
 // Then runs a dependent request: when f is ready, fn describes new requests
 // in s, and their result becomes the result of Then. The new requests run in
 // the next round of the same execution. fn must return a Future it created in
-// s, or nil for the zero value. Like Map, fn runs between rounds and must not
+// s (Resolved and Failed included), or nil for the zero value. Like Map, fn runs between rounds and must not
 // block.
 func Then[T, U any](f *Future[T], fn func(s Scope, v T) *Future[U]) *Future[U] {
 	out := newFuture[U](f.g)
@@ -236,6 +236,27 @@ func Then[T, U any](f *Future[T], fn func(s Scope, v T) *Future[U]) *Future[U] {
 		inner.subscribe(func(u U, err error, _ Scope) { out.resolve(u, err) })
 	})
 	return out
+}
+
+// Resolved returns a Future that holds v. It does no I/O: it is ready when
+// the execution starts, or at once inside Then. Use it to end a Then with a
+// value computed from the previous one.
+func Resolved[T any](s Scope, v T) *Future[T] {
+	g := s.scope()
+	f := newFuture[T](g)
+	g.add(resolved(func() { f.resolve(v, nil) }))
+	return f
+}
+
+// Failed returns a Future that holds err, as Resolved does for a value.
+func Failed[T any](s Scope, err error) *Future[T] {
+	g := s.scope()
+	f := newFuture[T](g)
+	g.add(resolved(func() {
+		var zero T
+		f.resolve(zero, err)
+	}))
+	return f
 }
 
 // All returns a Future with the values of fs in order. It fails with the first

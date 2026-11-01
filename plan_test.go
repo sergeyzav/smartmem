@@ -48,14 +48,14 @@ func TestP1_ExecRereads(t *testing.T) {
 		r1 pid=100 R 0x1000+4 R 0x5000+4`)
 }
 
-type Stats struct {
-	HP  int32
-	Pos Vec3
+type Summary struct {
+	ID     int32
+	Origin Vec3
 }
 
-func (s *Stats) Bind(l *smartmem.Loader, base smartmem.Loc) {
-	smartmem.Field(l, &s.HP, base.Add(0x100))
-	smartmem.Field(l, &s.Pos, base.Add(0x30).Deref().Add(0x90))
+func (s *Summary) Bind(l *smartmem.Loader, base smartmem.Loc) {
+	smartmem.Field(l, &s.ID, base.Add(0x100))
+	smartmem.Field(l, &s.Origin, base.Add(0x30).Deref().Add(0x90))
 }
 
 // P2: a static Plan (values, chains, structs, an unchanged string, Map)
@@ -66,14 +66,14 @@ func TestP2_ZeroAlloc(t *testing.T) {
 	}
 	e := newEnv(t)
 	e.mem.SetTrace(false)
-	putPlayer(e.fp, 0x10000, 0x20000, 0x30000, 100, Vec3{1, 2, 3}, "neo")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 100, Vec3{1, 2, 3}, "neo")
 	e.fp.U32(0x1000, 7)
 	unicodeString(e, 0x2000, 0x3000, "unchanged")
 
 	plan := e.s.NewPlan()
 	flat := smartmem.Read[uint32](plan, e.p.At(0x1000))
-	pos := smartmem.Read[Vec3](plan, e.p.Chain(e.p.At(0x10030), 0x90))
-	stats := smartmem.Load[Stats](plan, e.p.At(0x10000), smartmem.Revalidate(1))
+	origin := smartmem.Read[Vec3](plan, e.p.Chain(e.p.At(0x10030), 0x90))
+	summary := smartmem.Load[Summary](plan, e.p.At(0x10000), smartmem.Revalidate(1))
 	name := smartmem.ReadString(plan, e.p.Chain(e.p.At(0x10050), 0), smartmem.CString(32))
 	path := smartmem.ReadString(plan, e.p.At(0x2000), smartmem.UnicodeString)
 	twice := smartmem.Map(flat, func(v uint32) (uint32, error) { return 2 * v, nil })
@@ -83,7 +83,7 @@ func TestP2_ZeroAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("Exec allocates %.1f times, want 0", allocs)
 	}
-	if get(t, twice) != 14 || get(t, pos) != (Vec3{1, 2, 3}) || get(t, stats).HP != 100 ||
+	if get(t, twice) != 14 || get(t, origin) != (Vec3{1, 2, 3}) || get(t, summary).ID != 100 ||
 		get(t, name) != "neo" || get(t, path) != "unchanged" {
 		t.Fatal("wrong values")
 	}
@@ -122,24 +122,24 @@ func TestP4_LoadEachSteadyState(t *testing.T) {
 	}
 	e := newEnv(t)
 	e.mem.SetTrace(false)
-	putPlayer(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "a")
-	putPlayer(e.fp, 0x50000, 0x60000, 0x70000, 2, Vec3{}, "b")
+	putRecord(e.fp, 0x10000, 0x20000, 0x30000, 1, Vec3{}, "a")
+	putRecord(e.fp, 0x50000, 0x60000, 0x70000, 2, Vec3{}, "b")
 	e.fp.U64(0x8000, 0x10000).U64(0x8008, 0x50000)
 	plan := e.s.NewPlan()
-	list := smartmem.ReadSlice[smartmem.Ptr[Player]](plan, e.p.At(0x8000), 2)
-	players := smartmem.LoadEach[Player](plan, e.p, list)
-	playerBinds.Store(0)
+	list := smartmem.ReadSlice[smartmem.Ptr[Record]](plan, e.p.At(0x8000), 2)
+	records := smartmem.LoadEach[Record](plan, e.p, list)
+	recordBinds.Store(0)
 	e.exec(plan)
-	binds := playerBinds.Load()
+	binds := recordBinds.Load()
 
 	allocs := testing.AllocsPerRun(50, func() { e.exec(plan) })
 	if allocs > 2 { // the pointer list and the result slice
 		t.Fatalf("Exec allocates %.1f times, want at most 2", allocs)
 	}
-	if playerBinds.Load() != binds || binds != 2 {
-		t.Fatalf("Bind ran %d times after the first Exec's %d", playerBinds.Load()-binds, binds)
+	if recordBinds.Load() != binds || binds != 2 {
+		t.Fatalf("Bind ran %d times after the first Exec's %d", recordBinds.Load()-binds, binds)
 	}
-	if ps := get(t, players); len(ps) != 2 || ps[1].Name != "b" {
+	if ps := get(t, records); len(ps) != 2 || ps[1].Name != "b" {
 		t.Fatalf("got %+v", ps)
 	}
 }

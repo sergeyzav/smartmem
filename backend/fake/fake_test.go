@@ -203,10 +203,10 @@ func TestExecFatalErrors(t *testing.T) {
 
 func TestProcessInfo(t *testing.T) {
 	m := fake.New()
-	m.Proc(1).Name("game.exe").Module("Client.dll", 0x7ff600000000, 0x2000)
+	m.Proc(1).Name("app.exe").Module("Core.dll", 0x7ff600000000, 0x2000)
 	m.Proc(2).Name("old.exe").Wow64()
 
-	if pid, err := m.PidByName("GAME.EXE"); err != nil || pid != 1 {
+	if pid, err := m.PidByName("APP.EXE"); err != nil || pid != 1 {
 		t.Errorf("PidByName = %d, %v; want 1", pid, err)
 	}
 	if _, err := m.PidByName("none.exe"); !errors.Is(err, fake.ErrNoProcess) {
@@ -215,7 +215,7 @@ func TestProcessInfo(t *testing.T) {
 	if info, err := m.Info(2); err != nil || !info.Wow64 || !info.X64 {
 		t.Errorf("Info(2) = %+v, %v; want Wow64", info, err)
 	}
-	if base, err := m.ModuleBase(1, "client.DLL"); err != nil || base != 0x7ff600000000 {
+	if base, err := m.ModuleBase(1, "core.DLL"); err != nil || base != 0x7ff600000000 {
 		t.Errorf("ModuleBase = %#x, %v", base, err)
 	}
 	if _, err := m.ModuleBase(1, "none.dll"); !errors.Is(err, fake.ErrNoModule) {

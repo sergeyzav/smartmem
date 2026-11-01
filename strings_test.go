@@ -28,7 +28,7 @@ func unicodeString(e *env, addr, buf uint64, s string) {
 
 func TestReadString(t *testing.T) {
 	e := newEnv(t, smartmem.WithMaxStringLen(8))
-	e.fp.Bytes(0x1000, []byte("player\x00junk"))
+	e.fp.Bytes(0x1000, []byte("sample\x00junk"))
 	e.fp.Bytes(0x1100, []byte("abcd"))
 	e.fp.Bytes(0x1200, append(utf16le("Ünïcode"), 0, 0))
 	e.fp.U64(0x1300, 0x1000)
@@ -53,8 +53,8 @@ func TestReadString(t *testing.T) {
 		f    *smartmem.Future[string]
 		want string
 	}{
-		"CString": {c, "player"}, "Truncate": {trunc, "abcd"}, "UTF16": {w, "Ünïcode"},
-		"via pointer": {viaPtr, "player"}, "UnicodeString": {us, "C:\\x"},
+		"CString": {c, "sample"}, "Truncate": {trunc, "abcd"}, "UTF16": {w, "Ünïcode"},
+		"via pointer": {viaPtr, "sample"}, "UnicodeString": {us, "C:\\x"},
 		"capped by WithMaxStringLen": {long, "too "}, "empty": {empty, ""},
 	} {
 		if got := get(t, tc.f); got != tc.want {
